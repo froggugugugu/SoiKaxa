@@ -1,0 +1,7 @@
+# コーディングエージェントのローカル状態(AI生成の生データ・個人設定)
+testreport/
+.agents/skills/*-workspace/
+.claude/settings.local.json
+.claude/worktrees/
+.claude/agent-memory-local/
+.claude/skills/*-workspace/

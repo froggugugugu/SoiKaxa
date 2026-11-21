@@ -1,0 +1,1 @@
+../../.agents/rules/document-management.md
