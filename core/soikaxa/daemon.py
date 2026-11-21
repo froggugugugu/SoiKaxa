@@ -101,7 +101,10 @@ class PlayerService:
         self._fallback_active = False
         self._prefetched: tuple[str, Resolved] | None = None
         self._notice = ""
-        self.health_notice = ""
+        self.net_notice = ""  # 上流ネットワーク由来（キャプティブ等）
+        self.health_notice = ""  # 毎朝のヘルスチェック由来
+        self._prefetching: str | None = None
+        self._advance_started: float | None = None
         player.on_end(lambda reason: self._advance())
 
     # ---------- 購読 ----------
@@ -131,12 +134,18 @@ class PlayerService:
     def state(self) -> State:
         return self.sm.state
 
-    def healthy(self, timeout: float = 5.0) -> bool:
-        """ウォッチドッグ用。再生ループのロックが一定時間内に取れること。"""
-        if not self._lock.acquire(timeout=timeout):
-            return False
-        self._lock.release()
-        return True
+    def healthy(self, max_advance_sec: float = 120.0) -> bool:
+        """ウォッチドッグ用。曲送り（resolve + 再生開始）が長時間終わらなければ不健全。
+
+        resolve は実機で数秒〜十数秒かかりうるので、短い待ちでは判定しない。
+        """
+        started = self._advance_started
+        return started is None or time.monotonic() - started < max_advance_sec
+
+    @property
+    def is_playing(self) -> bool:
+        """再生中（一時停止でない）。状態機械や mpv への問い合わせに依存しない軽い判定。"""
+        return self._current is not None and not self._paused
 
     def status(self) -> StatusView:
         # ロックを取らない（resolve 中でも Web・LCD を止めない）。参照の読み出しのみで一貫性は十分
@@ -152,7 +161,7 @@ class PlayerService:
             volume=self.store.load().volume,
             adapter=self.active_name,
             playlist_id=self.queue.playlist_id,
-            notice=self._notice or self.health_notice,
+            notice=self._notice or self.net_notice or self.health_notice,
         )
 
     def playlists(self) -> list[Playlist]:
@@ -161,8 +170,9 @@ class PlayerService:
     def search(self, query: str, limit: int = 20) -> list[Track | Playlist]:
         return self.active.search(query, limit)
 
-    def playlist_tracks(self, playlist_id: str) -> list[Track]:
-        return self.active.list_tracks(playlist_id)
+    def playlist_tracks(self, playlist_id: str, adapter: str | None = None) -> list[Track]:
+        source = self.adapters.get(adapter) if adapter else None
+        return (source or self.active).list_tracks(playlist_id)
 
     # ---------- 操作 ----------
     def select_playlist(self, playlist_id: str, adapter: str | None = None) -> None:
@@ -176,8 +186,8 @@ class PlayerService:
                 self._notice = ""
             self._failures = 0
             self.queue.set_playlist(playlist_id, tracks)
-            self.store.update(last_playlist=LastPlaylist(name, playlist_id))
             self._advance()
+        self.store.update(last_playlist=LastPlaylist(name, playlist_id))  # fsync はロックの外
 
     def set_active_adapter(self, name: str) -> None:
         if name not in self.adapters:
@@ -282,29 +292,42 @@ class PlayerService:
 
     def _advance(self) -> None:
         with self._lock:
-            while True:
-                np = self.queue.pop_next()
-                if np is None:
+            self._advance_started = time.monotonic()
+            try:
+                self._advance_locked()
+            finally:
+                self._advance_started = None
+        self._notify()
+
+    def _advance_locked(self) -> None:
+        while True:
+            np = self.queue.pop_next()
+            if np is None:
+                self._finish()
+                return
+            try:
+                resolved = self._take_prefetched(np.track.id)
+                if resolved is None:
+                    resolved = self._adapter_for(np.track).resolve(np.track.id)
+                self.player.play(resolved)
+            except (AdapterError, MpvError) as e:
+                log.warning("skip %s: %s", np.track.id, type(e).__name__)
+                self._failures += 1
+                if self._failures >= self.max_failures * 2:
+                    # フォールバック後も失敗が続く。キュー全体を回し続けず止める
+                    log.warning("giving up after %d consecutive failures", self._failures)
+                    self._failures = 0
                     self._finish()
                     return
-                try:
-                    resolved = self._take_prefetched(np.track.id) or self._adapter_for(np.track).resolve(
-                        np.track.id
-                    )
-                    self.player.play(resolved)
-                except (AdapterError, MpvError) as e:
-                    log.warning("skip %s: %s", np.track.id, type(e).__name__)
-                    self._failures += 1
-                    if self._failures >= self.max_failures and not self._fallback_active:
-                        self._switch_to_fallback()
-                    continue
-                self._failures = 0
-                self._current = np
-                self._paused = False
-                self.sm.dispatch(Event.PLAY)
-                self._prefetch_next()
-                break
-        self._notify()
+                if self._failures == self.max_failures:
+                    self._switch_to_fallback()
+                continue
+            self._failures = 0
+            self._current = np
+            self._paused = False
+            self.sm.dispatch(Event.PLAY)
+            self._prefetch_next()
+            return
 
     def _finish(self) -> None:
         was_playing = self._current is not None
@@ -337,16 +360,20 @@ class PlayerService:
         nxt = self.queue.peek_next()
         if nxt is None or (self._prefetched and self._prefetched[0] == nxt.track.id):
             return
+        if self._prefetching is not None:
+            return  # 先読みは同時に 1 件だけ（曲追加のたびに resolve を増やさない）
         track = nxt.track
         adapter = self._adapter_for(track)
+        self._prefetching = track.id
 
         def job() -> None:
             try:
                 r = adapter.resolve(track.id)
             except AdapterError:
                 return  # 再生時にもう一度試す
-            with self._lock:
-                self._prefetched = (track.id, r)
+            finally:
+                self._prefetching = None
+            self._prefetched = (track.id, r)
 
         self.run_async(job)
 

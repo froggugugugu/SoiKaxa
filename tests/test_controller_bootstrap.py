@@ -115,11 +115,96 @@ def test_stale_frames_discarded_on_track_change(lcd):
     assert c._frames is not None
 
 
-def test_no_speaker_notice(lcd):
+def test_notice_by_state(lcd):
     c, svc, *_ = lcd
     svc.dispatch(Event.NET_UP)
-    c.compose()
-    assert MSG_NO_SPEAKER  # ONLINE ではスピーカー案内を出す（描画が例外なく完了すること）
+    assert c.view()[1].notice == MSG_NO_SPEAKER  # ONLINE: スピーカー未接続の案内
+    svc.dispatch(Event.BT_CONNECTING)
+    assert c.view()[1].notice == MSG_NO_SPEAKER
+    svc.net_notice = "上流の案内"
+    assert c.view()[1].notice == "上流の案内"  # 既存の通知を上書きしない
+    svc.net_notice = ""
+    svc.dispatch(Event.BT_CONNECTED)
+    assert c.view()[1].notice == ""  # IDLE: 案内なし
+
+
+def test_setup_code_is_shown_only_while_pin_unset(lcd):
+    c, svc, fb, *_ = lcd
+    code = ["493817"]
+    c.setup_code = lambda: code[0]
+    svc.dispatch(Event.NET_UP)
+    svc.dispatch(Event.BT_CONNECTED)
+    assert c.view()[1].notice == "設定コード 493817"
+    with_code = c.compose()[1].tobytes()
+    svc.dispatch(Event.FAIL)
+    err_with = c.compose()[1].tobytes()
+    code[0] = None  # PIN 登録後
+    assert c.compose()[1].tobytes() != err_with
+    svc.dispatch(Event.RECOVER)
+    svc.dispatch(Event.BT_CONNECTED)
+    assert c.view()[1].notice == "" and c.compose()[1].tobytes() != with_code
+
+
+def test_now_screen_while_playing_regardless_of_state(lcd):
+    """上流なし（AP_ONLY）のローカル再生やエラー中でも、曲が流れていれば曲名とレコードを出す。"""
+    c, svc, fb, jobs, *_ = lcd
+    svc.dispatch(Event.NET_DOWN)
+    assert c.view()[0] == "setup"
+    svc.select_playlist("p")
+    assert svc.state.value == "AP_ONLY" and c.view()[0] == "now" and c.view()[1].title == "A"
+    svc.dispatch(Event.FAIL)
+    svc.net_notice = "この Wi-Fi は同意が必要。テザリングへ"
+    name, view = c.view()
+    assert name == "now" and view.notice.startswith("この Wi-Fi")
+    c.tick()
+    jobs.pop()()
+    c.tick()
+    before = fb.path.read_bytes()
+    c.tick()
+    c.tick()
+    assert fb.path.read_bytes() != before  # 状態が PLAYING でなくてもレコードが回る
+
+
+def test_full_redraw_keeps_record_angle(lcd):
+    """進捗更新の全面描画でレコードが 0° に戻らない（毎秒のカクつき防止）。"""
+    c, svc, fb, jobs, *_ = lcd
+    svc.dispatch(Event.NET_UP)
+    svc.select_playlist("p")
+    c.tick()
+    jobs.pop()()
+    c.tick()
+    for _ in range(10):
+        c.tick()  # 回転を進める
+
+    def region():
+        data = fb.path.read_bytes()
+        x, y = 20, 60
+        return b"".join(data[((y + i) * 480 + x) * 2 :][:400] for i in range(200))
+
+    spinning = region()
+    assert spinning != c._frames.frames[0]
+    c.invalidate()
+    c.tick()  # 全面描画
+    assert region() == spinning
+
+
+def test_setup_full_is_drawn_once_not_every_tick(lcd):
+    c, svc, fb, jobs, clock, _ = lcd
+    svc.dispatch(Event.NET_UP)
+    writes = []
+    orig = fb.write_raw
+    fb.write_raw = lambda *a: (writes.append(1), orig(*a))[1]
+    c.tick()
+    c.show_setup_qr()
+    c.tick()
+    n = len(writes)
+    for _ in range(20):
+        c.invalidate()  # 曲の変化や 1 秒ごとの更新が来ても描き直さない
+        c.tick()
+    assert len(writes) == n and c._last_screen == "setup_full"
+    clock.t += 31
+    c.tick()
+    assert len(writes) == n + 1 and c._last_screen == "now"
 
 
 def test_cover_loader_cache_and_rejects(tmp_path):
@@ -170,6 +255,96 @@ def test_connect_speaker(rt):
     assert not bootstrap.connect_speaker(rt)  # 記憶機器なし
     rt.store.update(known_speakers=[Speaker("AA:BB:CC:DD:EE:FF", "Fake")])
     assert bootstrap.connect_speaker(rt) and rt.service.state.value == "IDLE"
+
+
+def _music(rt, name="Mix", n=2):
+    d = rt.data_dir.parent / "music" / name
+    d.mkdir(parents=True)
+    for i in range(1, n + 1):
+        (d / f"{i}.mp3").write_bytes(b"")
+
+
+def test_captive_notice_survives_ok_healthcheck_and_clears_when_online(rt):
+    """FR-015: 毎朝のヘルスチェックが正常でも、キャプティブの案内を消さない。"""
+    from soikaxa.health import HealthResult, save_result
+
+    save_result(HealthResult(True, "OK", 40.0, 1.0), rt.data_dir / "health.json")
+    rt.wifi.http_get = lambda u: (200, "<html>")
+    for n in range(2, 8):  # 監視を何周しても文言が残る
+        bootstrap.monitor_step(rt, n)
+        assert rt.service.status().notice == bootstrap.MSG_CAPTIVE
+    assert rt.service.state.value == "ERROR"
+    rt.wifi.http_get = lambda u: (204, "")
+    bootstrap.monitor_step(rt, 2)
+    assert rt.service.status().notice == "" and rt.service.state.value in ("ONLINE", "IDLE")
+    rt.wifi.http_get = lambda u: (200, "<html>")
+    bootstrap.monitor_step(rt, 2)
+    rt.wifi.http_get = lambda u: (0, "")
+    bootstrap.monitor_step(rt, 2)
+    assert rt.service.net_notice == ""  # 圏外になったら同意の案内は出さない
+
+
+def test_health_failure_notice_is_separate_from_network(rt):
+    from soikaxa.health import MSG_SOURCE_DOWN, HealthResult, save_result
+
+    bootstrap.apply_health(rt)  # ファイルなし
+    assert rt.service.health_notice == ""
+    save_result(HealthResult(False, MSG_SOURCE_DOWN, None, 1.0), rt.data_dir / "health.json")
+    bootstrap.monitor_step(rt, 2)
+    assert rt.service.status().notice == MSG_SOURCE_DOWN
+    bootstrap.monitor_step(rt, 3)  # 奇数周はネットワーク確認をしない
+    assert rt.service.status().notice == MSG_SOURCE_DOWN
+
+
+def test_speaker_loss_is_detected_while_playing_and_reconnected(rt):
+    """FR-006: 再生中・待機中でも切断に気づいて再接続する。"""
+    mac = "AA:BB:CC:DD:EE:FF"
+    _music(rt)
+    rt.store.update(known_speakers=[Speaker(mac, "Fake")])
+    rt.service.dispatch(Event.NET_UP)
+    assert bootstrap.connect_speaker(rt)
+    rt.service.select_playlist("Mix", "local")
+    assert rt.service.state.value == "PLAYING"
+    rt.runner.on(["bluetoothctl", "info"], CommandResult(0, "Connected: no"))
+    rt.runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(1, "Failed"))
+    assert not bootstrap.connect_speaker(rt)
+    assert rt.service.state.value == "ONLINE" and not rt.speaker_connected
+    rt.runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(0, "Connection successful"))
+    assert bootstrap.connect_speaker(rt)
+    assert rt.service.state.value == "IDLE" and rt.speaker_connected
+
+
+def test_autoplay_only_when_speaker_becomes_connected(rt):
+    _music(rt, n=1)
+    rt.store.update(known_speakers=[Speaker("AA:BB:CC:DD:EE:FF", "Fake")])
+    rt.service.dispatch(Event.NET_UP)
+    rt.service.select_playlist("Mix", "local")
+    rt.service.next()  # 1 曲だけなので再生終了
+    assert rt.service.status().now is None
+    assert bootstrap.connect_speaker(rt) and rt.service.status().now is not None  # 接続時に自動再生
+    rt.service.next()
+    for _ in range(3):  # 接続したままの定期確認では、終わった再生を始め直さない
+        assert bootstrap.connect_speaker(rt)
+    assert rt.service.status().now is None
+
+
+def test_speaker_connects_and_autoplays_without_upstream(rt):
+    """上流 Wi-Fi が無くても（AP_ONLY）、スピーカーにつないでローカル音源を流す。"""
+    _music(rt)
+    rt.store.update(known_speakers=[Speaker("AA:BB:CC:DD:EE:FF", "Fake")])
+    rt.service.select_playlist("Mix", "local")
+    rt.service.next()
+    rt.service.next()
+    rt.service.dispatch(Event.NET_DOWN)
+    assert bootstrap.connect_speaker(rt)
+    assert rt.service.state.value == "AP_ONLY" and rt.service.is_playing
+
+
+def test_long_press_unlocks_pin_guard(rt):
+    done = []
+    bootstrap.on_gesture(rt, Gesture.SETUP_QR, lambda: done.append("show"), lambda: done.append("unlock"))
+    assert done == ["unlock", "show"]
+    bootstrap.on_gesture(rt, Gesture.SETUP_QR, lambda: done.append("show"))  # unlock 省略可
 
 
 def test_connect_speaker_failure(rt):

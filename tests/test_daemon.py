@@ -280,7 +280,8 @@ def test_status_and_enqueue_do_not_block_while_resolving(tmp_path):
     t = threading.Thread(target=svc.next)
     t.start()
     assert entered.wait(1)  # 再生ループが resolve 中（ロック保持）
-    assert not svc.healthy(timeout=0.05)
+    assert svc.healthy()  # 数秒の resolve では不健全にしない
+    assert not svc.healthy(max_advance_sec=0)  # 終わらない曲送りは不健全
     assert svc.status().now.id == "a"  # 待たされない
     svc.enqueue(Track(id="g", title="G", source="remote"))  # 再生中なので待たされない
     gate.set()
@@ -306,3 +307,62 @@ def test_concurrent_enqueue_when_idle_plays_both(tmp_path):
     now = svc.status().now.id
     rest = [u.id for u in svc.status().upcoming]
     assert sorted([now, *rest]) == ["x", "y"] and len(loaded(tr)) == 1
+
+
+def test_failure_count_resets_on_success(tmp_path):
+    """「連続」失敗だけを数える。成功を挟めばフォールバックしない。"""
+    remote = FakeAdapter(
+        "remote", {"p": ["x1", "x2", "ok", "x3", "x4", "ok2"]}, fail={"x1", "x2", "x3", "x4"}
+    )
+    svc, tr = make(tmp_path, remote)
+    svc.select_playlist("p")
+    assert loaded(tr) == ["remote://ok"]
+    tr.finish()
+    assert loaded(tr)[-1] == "remote://ok2" and svc.status().adapter == "remote"
+
+
+def test_gives_up_when_fallback_also_fails(tmp_path):
+    remote = FakeAdapter("remote", {"p": [f"r{i}" for i in range(10)]}, fail={"*"})
+    local = FakeAdapter("local", {"lp": [f"l{i}" for i in range(50)]}, fail={"*"})
+    svc, tr = make(tmp_path, remote, local=local)
+    svc.select_playlist("p")
+    assert svc.status().now is None and loaded(tr) == []
+    assert len(remote.resolved) + len(local.resolved) == 6  # 3 回でフォールバック、さらに 3 回で打ち切り
+
+
+def test_all_local_failures_stop_without_looping_whole_queue(tmp_path):
+    local = FakeAdapter("local", {"lp": [f"l{i}" for i in range(50)]}, fail={"*"})
+    svc, _ = make(tmp_path, None, local=local, active="local")
+    svc.select_playlist("lp")
+    assert len(local.resolved) == 6 and svc.status().now is None
+
+
+def test_prefetch_runs_one_at_a_time(tmp_path):
+    remote = FakeAdapter("remote", {"p": ["a", "b"]})
+    svc, _ = make(tmp_path, remote)
+    svc.select_playlist("p")
+    for i in range(5):  # ゲストが続けて追加しても resolve スレッドを増やさない
+        svc.enqueue(Track(id=f"g{i}", title="G", source="remote"), play_next=True)
+    assert len(svc.jobs) == 1
+    run_jobs(svc)
+    svc.enqueue(Track(id="h", title="H", source="remote"), play_next=True)
+    assert len(svc.jobs) == 1  # 終われば次を先読みできる
+
+
+def test_is_playing_and_notice_priority(tmp_path):
+    svc, _ = make(tmp_path, FakeAdapter("remote", {"p": ["a"]}))
+    assert not svc.is_playing
+    svc.select_playlist("p")
+    assert svc.is_playing
+    svc.pause()
+    assert not svc.is_playing
+    svc.health_notice, svc.net_notice = "health", "net"
+    assert svc.status().notice == "net"  # ネットワーク由来がヘルスチェックより優先
+    svc.net_notice = ""
+    assert svc.status().notice == "health"
+
+
+def test_playlist_tracks_uses_given_adapter(tmp_path):
+    svc, _ = make(tmp_path, FakeAdapter("remote", {"p": ["a"]}))
+    assert svc.playlist_tracks("lp", "local")[0].id == "l1"
+    assert svc.playlist_tracks("p", "unknown")[0].id == "a"  # 不明ならアクティブな音源

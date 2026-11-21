@@ -17,7 +17,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-_PIN_RE = re.compile(r"^[0-9]{4,8}$")
+PIN_PATTERN = r"^[0-9]{6,8}$"
+_PIN_RE = re.compile(PIN_PATTERN)
 _N, _R, _P = 2**14, 8, 1
 
 
@@ -27,7 +28,7 @@ class InvalidPin(ValueError):
 
 def validate_pin(pin: str) -> str:
     if not isinstance(pin, str) or not _PIN_RE.fullmatch(pin):
-        raise InvalidPin("PIN は 4〜8 桁の数字")
+        raise InvalidPin("PIN は 6〜8 桁の数字")
     return pin
 
 
@@ -61,17 +62,33 @@ class PinLocked(Exception):
 
 
 class PinGuard:
-    """端末全体で失敗回数を数える（端末 AP 内の少人数前提）。"""
+    """端末全体で失敗回数を数える（端末 AP 内の少人数前提）。
+
+    ロックは 2 倍ずつ延びる（上限 max_lockout_sec）。成功か、本体操作による reset() で元に戻る。
+    """
 
     def __init__(
-        self, max_attempts: int = 5, lockout_sec: float = 300.0, clock: Callable[[], float] = time.time
+        self,
+        max_attempts: int = 5,
+        lockout_sec: float = 300.0,
+        clock: Callable[[], float] = time.time,
+        max_lockout_sec: float = 3600.0,
     ):
         self.max_attempts = max_attempts
         self.lockout_sec = lockout_sec
+        self.max_lockout_sec = max_lockout_sec
         self._clock = clock
         self._failures = 0
+        self._lockouts = 0
         self._locked_until = 0.0
         self._lock = threading.Lock()
+
+    def reset(self) -> None:
+        """ロックを解除する。本体の長押し（その場にいる人だけができる操作）から呼ぶ。"""
+        with self._lock:
+            self._failures = 0
+            self._lockouts = 0
+            self._locked_until = 0.0
 
     def check(self) -> None:
         with self._lock:
@@ -85,12 +102,49 @@ class PinGuard:
         with self._lock:
             if ok:
                 self._failures = 0
+                self._lockouts = 0
                 return True
             self._failures += 1
             if self._failures >= self.max_attempts:
                 self._failures = 0
-                self._locked_until = self._clock() + self.lockout_sec
+                duration = min(self.lockout_sec * (2**self._lockouts), self.max_lockout_sec)
+                self._lockouts += 1
+                self._locked_until = self._clock() + duration
             return False
+
+
+class SetupCode:
+    """オーナー PIN 未設定の間だけ有効な 6 桁コード。本体の LCD にだけ表示する。
+
+    AP に入れるだけのゲストが先に PIN を登録してオーナーを名乗ることを防ぐ。
+    """
+
+    def __init__(self) -> None:
+        self._code: str | None = None
+        self._lock = threading.Lock()
+
+    def ensure(self) -> str:
+        with self._lock:
+            if self._code is None:
+                self._code = f"{secrets.randbelow(1_000_000):06d}"
+            return self._code
+
+    def regenerate(self) -> str:
+        with self._lock:
+            self._code = None
+        return self.ensure()
+
+    def clear(self) -> None:
+        with self._lock:
+            self._code = None
+
+    @property
+    def current(self) -> str | None:
+        return self._code
+
+    def verify(self, code: str) -> bool:
+        cur = self._code
+        return bool(cur and isinstance(code, str) and hmac.compare_digest(cur, code))
 
 
 @dataclass
@@ -100,7 +154,7 @@ class _Session:
 
 
 class SessionStore:
-    def __init__(self, ttl_sec: float = 12 * 3600, clock: Callable[[], float] = time.time):
+    def __init__(self, ttl_sec: float = 4 * 3600, clock: Callable[[], float] = time.time):
         self.ttl_sec = ttl_sec
         self._clock = clock
         self._sessions: dict[str, _Session] = {}

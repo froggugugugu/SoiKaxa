@@ -15,7 +15,7 @@ from PIL import Image
 
 from ..daemon import PlayerService, TrackView
 from ..state import State
-from .fb import Framebuffer
+from .fb import Framebuffer, to_rgb565
 from .record import DIAMETER, RecordFrames, record_disc
 from .screens import (
     RECORD_XY,
@@ -74,6 +74,7 @@ class LcdController:
         cover_loader: Callable[[TrackView], Image.Image | None] = lambda t: None,
         clock: Callable[[], float] = time.monotonic,
         run_async: Callable[[Callable[[], None]], None] | None = None,
+        setup_code: Callable[[], str | None] = lambda: None,
     ):
         self.svc = service
         self.fb = fb
@@ -82,6 +83,7 @@ class LcdController:
         self.cover_loader = cover_loader
         self.clock = clock
         self.run_async = run_async or (lambda f: threading.Thread(target=f, daemon=True).start())
+        self.setup_code = setup_code  # PIN 未設定の間だけ値を返す
         self.boot_progress = 0.0
         self.error_message = ""
         self._setup_until = 0.0
@@ -100,36 +102,60 @@ class LcdController:
         self._setup_until = self.clock() + SETUP_FULL_SEC
         self.invalidate()
 
+    @property
+    def _setup_active(self) -> bool:
+        return self.clock() < self._setup_until
+
     # ---- 描画 ----
-    def compose(self) -> tuple[str, Image.Image]:
-        """現在の状態に対応する (画面名, 画像) を返す。"""
-        qr = self.qr_payload()
-        if self.clock() < self._setup_until:
-            return "setup_full", render_setup_full(qr)
+    def view(self) -> tuple[str, NowPlayingView | None]:
+        """(画面名, 通常画面の内容)。通常画面以外では内容は None。"""
+        if self._setup_active:
+            return "setup_full", None
         st = self.svc.status()
-        if st.state == State.BOOT:
-            return "boot", render_boot(self.boot_progress)
-        if st.state == State.AP_ONLY:
-            return "setup", render_setup(qr, self.portal_url)
-        if st.state == State.ERROR:
-            return "error", render_error(self.error_message or st.notice or "エラー", qr)
+        code = self.setup_code()
+        # 曲が流れている間は、状態機械がどの状態でも通常画面を出す
+        # （上流なしのローカル再生や、スピーカー再接続中でも曲名とレコードを見せる）
+        if st.now is None:
+            if st.state == State.BOOT:
+                return "boot", None
+            if st.state == State.AP_ONLY:
+                return "setup", None
+            if st.state == State.ERROR:
+                return "error", None
         notice = st.notice
-        if st.state in (State.ONLINE, State.BT_CONNECTING) and not notice:
+        if code:
+            notice = f"設定コード {code}"
+        elif not notice and st.state in (State.ONLINE, State.BT_CONNECTING):
             notice = MSG_NO_SPEAKER
         nxt = st.upcoming[0] if st.upcoming else None
-        view = NowPlayingView(
+        return "now", NowPlayingView(
             title=st.now.title if st.now else "待機中",
             artist=st.now.artist if st.now else "",
             position=st.position,
             duration=st.duration,
             next_title=nxt.title if nxt else None,
             next_added_by=nxt.added_by if nxt else "",
-            guest_qr=qr,
+            guest_qr=self.qr_payload(),
             paused=st.paused,
             notice=notice,
         )
-        self._ensure_frames(st.now)
-        return "now", render_now_playing(view, self._disc)
+
+    def compose(self) -> tuple[str, Image.Image]:
+        """現在の状態に対応する (画面名, 画像) を返す。"""
+        name, now_view = self.view()
+        qr, code = self.qr_payload(), self.setup_code()
+        if name == "setup_full":
+            return name, render_setup_full(qr, code=code)
+        if name == "boot":
+            return name, render_boot(self.boot_progress)
+        if name == "setup":
+            return name, render_setup(qr, self.portal_url, code)
+        if name == "error":
+            message = self.error_message or self.svc.status().notice or "エラー"
+            return name, render_error(message, qr, code)
+        assert now_view is not None
+        self._ensure_frames(self.svc.status().now)
+        return name, render_now_playing(now_view, self._disc)
 
     def _ensure_frames(self, now: TrackView | None) -> None:
         key = now.id if now else None
@@ -154,20 +180,28 @@ class LcdController:
 
     def render_once(self) -> str:
         name, img = self.compose()
-        self.fb.write(img)
+        data = to_rgb565(img)
+        frames = self._frames
+        if name == "now" and frames:
+            # 全面を描き直すときも、レコードは今の回転角のまま出す（0° に戻すと毎秒カクつく）
+            data = _splice(data, frames.shown, RECORD_XY, DIAMETER, self.fb.width)
+        self.fb.write_raw(data, (0, 0), img.size)
         self._last_screen = name
         return name
 
     def tick(self) -> None:
         """1 フレーム分。dirty なら全面、再生中ならレコード領域のみ。"""
-        if self._dirty.is_set() or self.clock() < self._setup_until or self._last_screen == "setup_full":
+        showing_setup = self._last_screen == "setup_full"
+        if self._setup_active != showing_setup:
+            self._dirty.set()  # 設定 QR の表示開始と終了
+        elif showing_setup:
+            self._dirty.clear()  # 表示中は静止画のまま（描き直さない）
+            return
+        if self._dirty.is_set():
             self._dirty.clear()
             self.render_once()
             return
-        st_playing = (
-            self._last_screen == "now" and self.svc.state == State.PLAYING and not self.svc.status().paused
-        )
-        if st_playing and self._frames:
+        if self._last_screen == "now" and self.svc.is_playing and self._frames:
             self.fb.write_raw(self._frames.next(), RECORD_XY, (DIAMETER, DIAMETER))
 
     def start(self) -> None:  # pragma: no cover - スレッドループ
@@ -187,3 +221,14 @@ class LcdController:
 
     def stop(self) -> None:
         self._stop.set()
+
+
+def _splice(full: bytes, region: bytes, xy: tuple[int, int], size: int, width: int) -> bytes:
+    """RGB565 の全面バッファに正方形の領域を上書きして返す。"""
+    buf = bytearray(full)
+    x, y = xy
+    row = size * 2
+    for i in range(size):
+        start = ((y + i) * width + x) * 2
+        buf[start : start + row] = region[i * row : (i + 1) * row]
+    return bytes(buf)

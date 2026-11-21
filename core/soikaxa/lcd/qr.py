@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import qrcode
 from PIL import Image
 from qrcode.constants import ERROR_CORRECT_M
 
 
+@lru_cache(maxsize=8)
 def make_qr(payload: str, size: int) -> Image.Image:
+    """戻り値はキャッシュを共有する。呼び出し側で書き換えない（paste の元にするだけ）。"""
     q = qrcode.QRCode(error_correction=ERROR_CORRECT_M, border=2, box_size=1)
     q.add_data(payload)
     q.make(fit=True)

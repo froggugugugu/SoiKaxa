@@ -89,11 +89,16 @@ def env(tmp_path):
         run_update=lambda: updates.append(1) or True,
     )
     client = TestClient(create_app(ctx), base_url="http://10.42.0.1")
+    client.ctx = ctx
     return client, ctx, src, tr, runner, updates
 
 
-def login(client, pin="1234"):
-    r = client.post("/api/owner/setup", json={"pin": pin})
+PIN = "246810"
+
+
+def login(client, pin=PIN):
+    code = client.ctx.setup_code.current
+    r = client.post("/api/owner/setup", json={"pin": pin, "setup_code": code or "000000"})
     if r.status_code == 409:
         r = client.post("/api/owner/login", json={"pin": pin})
     assert r.status_code == 200, r.text
@@ -234,18 +239,115 @@ def test_owner_api_requires_session_and_csrf(env):
 
 def test_session_cookie_flags(env):
     client, *_ = env
-    r = client.post("/api/owner/setup", json={"pin": "1234"})
+    r = client.post("/api/owner/setup", json={"pin": PIN, "setup_code": client.ctx.setup_code.current})
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=strict" in cookie
 
 
 def test_setup_only_once_and_pin_validation(env):
     client, ctx, *_ = env
-    assert client.post("/api/owner/login", json={"pin": "1234"}).status_code == 409  # 未設定
-    assert client.post("/api/owner/setup", json={"pin": "12"}).status_code == 422
+    code = ctx.setup_code.current
+    assert client.post("/api/owner/login", json={"pin": PIN}).status_code == 409  # 未設定
+    assert client.post("/api/owner/setup", json={"pin": "1234", "setup_code": code}).status_code == 422
+    assert client.post("/api/owner/setup", json={"pin": PIN}).status_code == 422  # コード必須
     login(client)
-    assert "1234" not in (ctx.store.path.read_text())
-    assert client.post("/api/owner/setup", json={"pin": "9999"}).status_code == 409
+    assert PIN not in (ctx.store.path.read_text())
+    assert ctx.setup_code.current is None  # 登録後はコードを無効にする
+    r = client.post("/api/owner/setup", json={"pin": "999999", "setup_code": code})
+    assert r.status_code == 409
+
+
+def test_setup_requires_code_shown_on_device(env):
+    """AP に入れるだけのゲストは、本体画面のコードを知らないので PIN を先取りできない。"""
+    client, ctx, *_ = env
+    code = ctx.setup_code.current
+    wrong = "000000" if code != "000000" else "111111"
+    assert "setup_code" not in client.get("/api/status").text and code not in client.get("/api/status").text
+    r = client.post("/api/owner/setup", json={"pin": PIN, "setup_code": wrong})
+    assert r.status_code == 403 and r.json()["detail"]["error"] == "wrong_code"
+    assert ctx.store.load().owner_pin_hash is None and "set-cookie" not in r.headers
+    for _ in range(2):  # 総当たりはロックされる（max_attempts=3）
+        client.post("/api/owner/setup", json={"pin": PIN, "setup_code": wrong})
+    r = client.post("/api/owner/setup", json={"pin": PIN, "setup_code": code})
+    assert r.status_code == 423
+    ctx.pin_guard.reset()  # 本体の長押し
+    assert client.post("/api/owner/setup", json={"pin": PIN, "setup_code": code}).status_code == 200
+
+
+def test_login_with_correct_pin_after_logout(env):
+    client, *_ = env
+    h = login(client)
+    client.post("/api/owner/logout", headers=h)
+    r = client.post("/api/owner/login", json={"pin": PIN})
+    assert r.status_code == 200 and r.json()["csrf"] and "sk_owner" in r.headers["set-cookie"]
+    assert client.get("/api/owner/playlists").status_code == 200
+
+
+def test_locked_login_skips_scrypt_and_busy_returns_429(env, monkeypatch):
+    client, ctx, *_ = env
+    login(client)
+    other = TestClient(client.app, base_url="http://10.42.0.1")
+    for _ in range(2):
+        assert ctx.scrypt_slots.acquire(blocking=False)
+    assert other.post("/api/owner/login", json={"pin": PIN}).status_code == 429  # 同時照合は 2 件まで
+    for _ in range(2):
+        ctx.scrypt_slots.release()
+    for _ in range(3):
+        other.post("/api/owner/login", json={"pin": "000000"})
+    calls = []
+    monkeypatch.setattr("soikaxa.web.app.verify_pin", lambda *a: calls.append(a) or True)
+    assert other.post("/api/owner/login", json={"pin": PIN}).status_code == 423
+    assert calls == []  # ロック中は重い照合をしない
+
+
+def test_owner_cookie_without_csrf_is_treated_as_guest(env):
+    client, ctx, *_ = env
+    login(client)  # Cookie はあるが、以降 CSRF ヘッダを付けない
+    ctx.store.update(allow_play_next=False, guest_queue_limit=1)
+    client.get("/api/search", params={"q": "hit"})
+    r = client.post("/api/queue", json={"track_id": "s1", "play_next": True})
+    assert r.status_code == 403 and r.json()["detail"]["error"] == "play_next_disabled"
+    assert client.post("/api/queue", json={"track_id": "s1"}).status_code == 200  # 再生開始
+    assert client.post("/api/queue", json={"track_id": "s2"}).status_code == 200
+    assert client.post("/api/queue", json={"track_id": "s3"}).status_code == 429  # ゲストの上限が効く
+
+
+def test_requests_from_upstream_network_are_rejected(env):
+    import ipaddress
+
+    client, ctx, *_ = env
+    ctx.allowed_networks = (ipaddress.ip_network("10.42.0.0/24"), ipaddress.ip_network("127.0.0.0/8"))
+    lan = TestClient(client.app, base_url="http://10.42.0.1", client=("192.168.1.50", 5000))
+    r = lan.get("/api/status")  # Host を偽装しても送信元で弾く
+    assert r.status_code == 403 and r.json()["detail"]["error"] == "forbidden_network"
+    assert lan.post("/api/owner/setup", json={"pin": PIN, "setup_code": "000000"}).status_code == 403
+    ap = TestClient(client.app, base_url="http://10.42.0.1", client=("10.42.0.23", 5000))
+    assert ap.get("/api/status").status_code == 200
+    odd = TestClient(client.app, base_url="http://10.42.0.1", client=("not-an-ip", 1))
+    assert odd.get("/api/status").status_code == 403
+
+
+def test_search_rate_limit_per_client_and_owner_exempt(env):
+    from soikaxa.web.app import RateLimiter
+
+    client, ctx, *_ = env
+    ctx.search_limiter = RateLimiter(limit=2, window_sec=60)
+    assert client.get("/api/search", params={"q": "a"}).status_code == 200
+    assert client.get("/api/search", params={"q": "b"}).status_code == 200
+    r = client.get("/api/search", params={"q": "c"})
+    assert r.status_code == 429 and r.json()["detail"]["error"] == "rate"
+    assert client.get("/api/search/playlists/pub").status_code == 429
+    login(client)
+    assert client.get("/api/search", params={"q": "c"}).status_code == 200  # オーナーは対象外
+
+
+def test_static_is_cacheable_but_api_is_not(env):
+    client, *_ = env
+    assert "max-age" in client.get("/static/jsQR.js").headers["cache-control"]
+    assert client.get("/api/status").headers["cache-control"] == "no-store"
+    assert (
+        "/static/jsQR.js" in client.get("/").text and "<script src=" not in client.get("/").text
+    )  # 遅延読込
 
 
 def test_pin_lockout(env):
@@ -253,8 +355,8 @@ def test_pin_lockout(env):
     login(client)
     other = TestClient(client.app, base_url="http://10.42.0.1")
     for _ in range(3):
-        assert other.post("/api/owner/login", json={"pin": "0000"}).status_code == 401
-    r = other.post("/api/owner/login", json={"pin": "1234"})
+        assert other.post("/api/owner/login", json={"pin": "000000"}).status_code == 401
+    r = other.post("/api/owner/login", json={"pin": PIN})
     assert r.status_code == 423 and r.json()["detail"]["error"] == "locked"
 
 
@@ -340,12 +442,23 @@ def test_owner_wifi_captive(env):
 
 
 def test_owner_ap_info_and_regenerate(env):
-    client, ctx, *_ = env
+    client, ctx, _, _, runner, _ = env
     h = login(client)
     ap = client.get("/api/owner/ap").json()
     assert ap["qr"] == "WIFI:T:WPA;S:soikaxa-ABCD;P:abcdefghjk;;"
+    changed = []
+    ctx.on_ap_change = lambda: changed.append(1)
     new = client.post("/api/owner/ap/regenerate", headers=h).json()
     assert new["password"] != "abcdefghjk" and new["ssid"] == "soikaxa-ABCD"
+    add = runner.called("nmcli", "connection", "add")[-1]  # 新しいパスワードで AP を張り直す
+    assert (
+        add[add.index("ssid") + 1] == "soikaxa-ABCD" and add[add.index("wifi-sec.psk") + 1] == new["password"]
+    )
+    assert runner.calls[-1] == ["nmcli", "connection", "up", "soikaxa-ap"] and changed == [1]
+    ctx.store.update(ap_ssid=None)  # SSID 未保存でも QR と実際の AP が一致する
+    again = client.post("/api/owner/ap/regenerate", headers=h).json()
+    used = runner.called("nmcli", "connection", "add")[-1]
+    assert again["ssid"] == ctx.store.load().ap_ssid == used[used.index("ssid") + 1]
 
 
 def test_owner_bluetooth(env):
@@ -356,6 +469,26 @@ def test_owner_bluetooth(env):
     assert r == {"ok": True, "name": "JBL"}
     assert client.get("/api/owner/bt").json()["known"] == [{"mac": MAC, "name": "JBL", "connected": True}]
     assert client.post("/api/owner/bt/connect", json={"mac": "nope"}, headers=h).status_code == 422
+
+
+def test_known_speakers_dedupe_order_limit_and_autoplay(env):
+    from soikaxa.config import LastPlaylist, Speaker
+
+    client, ctx, _, tr, *_ = env
+    h = login(client)
+    old = [Speaker(f"00:00:00:00:00:0{i}", f"S{i}") for i in range(4)]
+    ctx.store.update(
+        known_speakers=[*old, Speaker(MAC, "old name")], last_playlist=LastPlaylist("remote", "mine")
+    )
+    assert client.post("/api/owner/bt/connect", json={"mac": MAC.lower()}, headers=h).json()["ok"]
+    known = ctx.store.load().known_speakers
+    assert [k.mac for k in known] == [MAC, *[o.mac for o in old]]  # 重複なしで先頭へ
+    assert known[0].name == "JBL"
+    assert client.get("/api/status").json()["now"]["id"] == "mine-1"  # 接続で自動再生
+    new_mac = "11:22:33:44:55:66"
+    assert client.post("/api/owner/bt/connect", json={"mac": new_mac}, headers=h).json()["ok"]
+    known = ctx.store.load().known_speakers
+    assert len(known) == 5 and known[0].mac == new_mac and old[-1].mac not in [k.mac for k in known]
 
 
 def test_owner_bluetooth_failure(env):
@@ -398,6 +531,10 @@ def test_owner_update_and_reset(env):
     assert client.post("/api/owner/reset", json={"confirm": "RESET"}, headers=h).json() == {"ok": True}
     s = ctx.store.load()
     assert s.owner_pin_hash is None and s.ap_ssid == "soikaxa-ABCD" and not src.auth
+    # 初期化後に、それまで AP に入れた人が先に PIN を登録できないこと
+    assert s.ap_password != "abcdefghjk"  # AP パスワードを作り直す
+    assert ctx.setup_code.current is not None  # 新しい設定コード（LCD にだけ出る）
+    assert runner.called("bluetoothctl", "remove") == []  # 記憶スピーカーなし
     assert runner.called("nmcli", "connection", "delete")
     assert client.get("/api/owner/playlists").status_code == 401
 
@@ -408,4 +545,35 @@ def test_search_cache_lru():
         c.put(Track(id=str(i), title=""))
     assert c.track("0") is None and c.track("2") is not None
     c.put(Playlist(id="p", title=""))
-    assert c.has_playlist("p") and c.track("p") is None
+    assert c.playlist("p") is not None and c.track("p") is None and c.playlist("0") is None
+
+
+def test_reset_removes_bluetooth_pairing(env):
+    from soikaxa.config import Speaker
+
+    client, ctx, _, _, runner, _ = env
+    h = login(client)
+    ctx.store.update(known_speakers=[Speaker(MAC, "JBL")])
+    assert client.post("/api/owner/reset", json={"confirm": "RESET"}, headers=h).json() == {"ok": True}
+    assert runner.called("bluetoothctl", "remove") == [["bluetoothctl", "remove", MAC]]
+
+
+def test_guest_playlist_expansion_uses_source_at_search_time(env):
+    client, ctx, *_ = env
+    client.get("/api/search", params={"q": "hit"})
+    ctx.store.update(active_adapter="local")  # 途中で音源を切り替えても展開できる
+    ctx.service.adapters["local"].list_tracks = lambda pid: (_ for _ in ()).throw(AdapterError("x"))
+    assert client.get("/api/search/playlists/pub").status_code == 200
+
+
+def test_rate_limiter_window():
+    from soikaxa.web.app import RateLimiter
+
+    now = [0.0]
+    rl = RateLimiter(limit=1, window_sec=10, clock=lambda: now[0])
+    assert rl.allow("a") and not rl.allow("a") and rl.allow("b")
+    now[0] = 11
+    assert rl.allow("a")
+    for i in range(1002):
+        rl.allow(f"k{i}")
+    assert len(rl._hits) < 1000

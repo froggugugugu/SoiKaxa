@@ -6,9 +6,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ..auth import PIN_PATTERN
+
 
 class PinIn(BaseModel):
-    pin: str = Field(pattern=r"^[0-9]{4,8}$")
+    pin: str = Field(pattern=PIN_PATTERN)
+
+
+class SetupIn(BaseModel):
+    pin: str = Field(pattern=PIN_PATTERN)
+    setup_code: str = Field(pattern=r"^[0-9]{6}$")
 
 
 class EnqueueIn(BaseModel):

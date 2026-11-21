@@ -39,11 +39,10 @@ class Framebuffer:
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT, 0o644)
         try:
             if x == 0 and w == self.width:
-                os.lseek(fd, y * stride, os.SEEK_SET)
-                os.write(fd, data)
+                os.pwrite(fd, data, y * stride)
                 return
+            view = memoryview(data)
             for i in range(h):
-                os.lseek(fd, (y + i) * stride + x * 2, os.SEEK_SET)
-                os.write(fd, data[i * row : (i + 1) * row])
+                os.pwrite(fd, view[i * row : (i + 1) * row], (y + i) * stride + x * 2)
         finally:
             os.close(fd)

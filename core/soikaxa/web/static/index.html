@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>SoiKaxa</title>
+<link rel="icon" href="data:,">
 <style>
   :root { --bg:#0B0F14; --panel:#111821; --line:#1C242C; --cyan:#5DCAA5; --magenta:#ED93B1; --fg:#C9D1D9; --muted:#7D8590;
           --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Noto Sans Mono CJK JP", Menlo, Consolas, monospace; color-scheme: dark; }
@@ -70,7 +71,13 @@
 <!-- オーナービュー -->
 <div id="ownerView" class="hidden">
   <section id="pinBox">
-    <p id="pinLabel">オーナー PIN（4〜8 桁）</p>
+    <p id="pinLabel">オーナー PIN（6〜8 桁）</p>
+    <div id="codeBox" class="hidden">
+      <label for="setupCode"><small>設定コード（本体の画面に出ている 6 桁）</small></label>
+      <input id="setupCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <p class="sub">PIN は他のサービスと同じものを使わないでください（端末内の通信は暗号化されません）。</p>
+    </div>
+    <label for="pin"><small>PIN</small></label>
     <form id="pinForm" class="row">
       <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="current-password" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="PIN">
       <button class="primary" type="submit" id="pinBtn">入る</button>
@@ -155,7 +162,6 @@
 </div>
 
 <div id="toast" class="toast hidden" role="status"></div>
-<script src="/static/jsQR.js"></script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -243,7 +249,8 @@ function route() {
   const logged = statusCache.is_owner;
   $("pinBox").classList.toggle("hidden", logged);
   $("ownerPanel").classList.toggle("hidden", !logged);
-  $("pinLabel").textContent = statusCache.has_pin ? "オーナー PIN（4〜8 桁）" : "最初にオーナー PIN を決めてください（4〜8 桁の数字）";
+  $("pinLabel").textContent = statusCache.has_pin ? "オーナー PIN（6〜8 桁）" : "最初にオーナー PIN を決めてください（6〜8 桁の数字）";
+  $("codeBox").classList.toggle("hidden", statusCache.has_pin);
   $("pinBtn").textContent = statusCache.has_pin ? "入る" : "設定";
   if (logged && !route.loaded) { route.loaded = true; loadOwner(); }
   if (!logged) route.loaded = false;
@@ -252,8 +259,9 @@ window.onhashchange = route;
 
 $("pinForm").onsubmit = async (ev) => {
   ev.preventDefault();
-  const path = statusCache && statusCache.has_pin ? "/api/owner/login" : "/api/owner/setup";
-  try { csrf = (await api("POST", path, { pin: $("pin").value })).csrf; $("pin").value = ""; await refresh(); }
+  const setup = !(statusCache && statusCache.has_pin);
+  const body = setup ? { pin: $("pin").value, setup_code: $("setupCode").value } : { pin: $("pin").value };
+  try { csrf = (await api("POST", setup ? "/api/owner/setup" : "/api/owner/login", body)).csrf; $("pin").value = ""; $("setupCode").value = ""; await refresh(); }
   catch (e) { toast(e.message || "PIN が違います"); }
 };
 
@@ -316,8 +324,13 @@ function parseWifiQr(text) {
   }
   return { ssid: out.S || "", password: out.P || "", hidden: out.H === "true" };
 }
-$("qrFile").onchange = () => {
+function loadJsQR() {  // 250KB あるので、写真を選んだときに初めて読み込む
+  if (typeof jsQR === "function") return Promise.resolve();
+  return new Promise((ok, ng) => { const s = document.createElement("script"); s.src = "/static/jsQR.js"; s.onload = ok; s.onerror = ng; document.head.append(s); });
+}
+$("qrFile").onchange = async () => {
   const f = $("qrFile").files[0]; if (!f) return;
+  try { await loadJsQR(); } catch (e) { /* 下で判定 */ }
   if (typeof jsQR !== "function") { toast("QR 解読が使えません。手入力してください"); return; }
   const img = new Image();
   img.onload = () => {
@@ -376,7 +389,8 @@ $("resetBtn").onclick = () => guard(async () => { if (prompt("初期化するに
 $("logout").onclick = () => guard(async () => { await api("POST", "/api/owner/logout"); csrf = null; location.hash = ""; refresh(); });
 
 refresh();
-setInterval(refresh, 5000);
+setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 </script>
 </body>
 </html>

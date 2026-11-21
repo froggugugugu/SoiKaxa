@@ -82,17 +82,17 @@ def test_store_reset_keeps_ap_credentials(tmp_path):
 
 
 def test_pin_hash_and_verify():
-    h = auth.hash_pin("1234")
-    assert "1234" not in h
-    assert auth.verify_pin("1234", h)
-    assert not auth.verify_pin("1235", h)
-    assert not auth.verify_pin("1234", None)
-    assert not auth.verify_pin("1234", "garbage")
-    assert not auth.verify_pin("1234", "md5$1$1$1$AA==$AA==")
-    assert auth.hash_pin("1234") != h  # ソルト
+    h = auth.hash_pin("123456")
+    assert "123456" not in h
+    assert auth.verify_pin("123456", h)
+    assert not auth.verify_pin("123457", h)
+    assert not auth.verify_pin("123456", None)
+    assert not auth.verify_pin("123456", "garbage")
+    assert not auth.verify_pin("123456", "md5$1$1$1$AA==$AA==")
+    assert auth.hash_pin("123456") != h  # ソルト
 
 
-@pytest.mark.parametrize("bad", ["123", "123456789", "12a4", "", " 1234"])
+@pytest.mark.parametrize("bad", ["1234", "12345", "123456789", "12a456", "", " 123456"])
 def test_pin_validation(bad):
     with pytest.raises(auth.InvalidPin):
         auth.hash_pin(bad)
@@ -112,6 +112,36 @@ def test_pin_guard_lockout_and_recovery():
         g.attempt(True)  # ロック中は正しい PIN でも拒否
     now[0] += 61
     assert g.attempt(True) is True
+
+
+def test_pin_guard_lockout_doubles_and_reset_unlocks():
+    now = [0.0]
+    g = auth.PinGuard(max_attempts=1, lockout_sec=10, clock=lambda: now[0], max_lockout_sec=25)
+    expected = [10, 20, 25, 25]  # 2 倍ずつ、上限あり
+    for want in expected:
+        g.attempt(False)
+        with pytest.raises(auth.PinLocked) as e:
+            g.check()
+        assert e.value.retry_after == pytest.approx(want)
+        now[0] += want + 1
+    g.attempt(False)
+    g.reset()  # 本体の長押し
+    assert g.attempt(True) is True
+    g.attempt(False)
+    with pytest.raises(auth.PinLocked) as e:
+        g.check()
+    assert e.value.retry_after == pytest.approx(10)  # 成功でロック時間も元に戻る
+
+
+def test_setup_code():
+    c = auth.SetupCode()
+    assert c.current is None and not c.verify("000000")
+    code = c.ensure()
+    assert len(code) == 6 and code.isdigit() and c.ensure() == code
+    assert c.verify(code) and not c.verify("x" + code[1:]) and not c.verify(None)
+    assert c.regenerate() == c.current
+    c.clear()
+    assert c.current is None and not c.verify(code)
 
 
 def test_session_store_csrf_and_expiry():

@@ -56,8 +56,13 @@ def test_add_and_connect_success_hidden_and_channel_sync():
     assert add[add.index("802-11-wireless.hidden") + 1] == "yes"
     assert add[add.index("wifi-sec.psk") + 1] == "password123"
     assert add[add.index("connection.autoconnect-priority") + 1] == "5"
-    modify = r.called("nmcli", "connection", "modify")[0]
+    assert add[add.index("con-name") + 1] == "sknew-Venue"  # 仮の名前で作る
+    rename, modify = r.called("nmcli", "connection", "modify")
+    assert rename == ["nmcli", "connection", "modify", "sknew-Venue", "connection.id", "sta-Venue"]
     assert modify[-2:] == ["802-11-wireless.channel", "36"] and "a" in modify
+    order = [c[2:4] for c in r.calls if c[:2] == ["nmcli", "connection"]]
+    # 接続できてから旧設定を消す
+    assert order.index(["up", "sknew-Venue"]) < order.index(["delete", "sta-Venue"])
 
 
 def test_open_network_has_no_security_args():
@@ -83,7 +88,9 @@ def test_connect_failure_classification_and_cleanup(stderr, hidden, reason):
     r = FakeRunner().on(["nmcli", "connection", "up"], CommandResult(4, "", stderr))
     res = mgr(r).add_and_connect("X", "password123", hidden=hidden)
     assert not res.ok and res.reason == reason
-    assert len(r.called("nmcli", "connection", "delete")) == 2  # 事前削除 + 失敗時の後始末
+    deleted = [c[3] for c in r.called("nmcli", "connection", "delete")]
+    assert deleted == ["sknew-X", "sknew-X"]  # 仮プロファイルだけ消す。保存済みの sta-X は残す
+    assert not [c for c in r.called("nmcli", "connection", "modify") if "connection.id" in c]
     if reason == "not_found" and not hidden:
         assert "ステルス" in res.message
 

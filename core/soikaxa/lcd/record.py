@@ -85,3 +85,8 @@ class RecordFrames:
     @property
     def current(self) -> bytes:
         return self.frames[self.index]
+
+    @property
+    def shown(self) -> bytes:
+        """直前に next() で返したフレーム（いま画面に出ている回転角）。"""
+        return self.frames[(self.index - 1) % len(self.frames)]

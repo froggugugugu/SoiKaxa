@@ -21,6 +21,7 @@ from .runner import CommandRunner
 
 AP_CON_NAME = "soikaxa-ap"
 STA_PREFIX = "sta-"
+TMP_PREFIX = "sknew-"  # 接続確認が済むまでの仮プロファイル名
 AP_IP = "10.42.0.1"
 CONNECTIVITY_URL = "http://connectivitycheck.gstatic.com/generate_204"
 
@@ -208,7 +209,10 @@ class WifiManager:
         validate_ssid(ssid)
         validate_password(password)
         name = STA_PREFIX + ssid
-        self.r.run(["nmcli", "connection", "delete", name])  # 既存なら置き換え（無ければ失敗して良い）
+        # 仮の名前で作って接続を確かめてから差し替える。
+        # 先に既存を消すと、入力ミスで動いていた設定まで失う
+        tmp = TMP_PREFIX + ssid
+        self.r.run(["nmcli", "connection", "delete", tmp])  # 前回の残骸（無ければ失敗して良い）
         args = [
             "nmcli",
             "connection",
@@ -218,7 +222,7 @@ class WifiManager:
             "ifname",
             self.sta_if,
             "con-name",
-            name,
+            tmp,
             "ssid",
             ssid,
             "connection.autoconnect",
@@ -233,9 +237,9 @@ class WifiManager:
         added = self.r.run(args)
         if not added.ok:
             return ConnectResult(False, "error", added.stderr.strip()[:200])
-        up = self.r.run(["nmcli", "connection", "up", name], timeout=45)
+        up = self.r.run(["nmcli", "connection", "up", tmp], timeout=45)
         if not up.ok:
-            self.r.run(["nmcli", "connection", "delete", name])
+            self.r.run(["nmcli", "connection", "delete", tmp])
             reason = _classify_failure(up.stderr)
             if reason == "not_found" and not hidden:
                 return ConnectResult(False, "not_found", "見つかりません。ステルスなら「ステルス」をオンに")
@@ -243,6 +247,8 @@ class WifiManager:
                 reason, "接続失敗"
             )
             return ConnectResult(False, reason, msg)
+        self.r.run(["nmcli", "connection", "delete", name])  # 旧設定（無ければ失敗して良い）
+        self.r.run(["nmcli", "connection", "modify", tmp, "connection.id", name])
         self.sync_ap_channel()
         if self.connectivity() == "captive":
             return ConnectResult(

@@ -102,3 +102,17 @@ def test_font_env_override(monkeypatch, tmp_path):
     theme.font.cache_clear()
     assert theme.font(12) is not None  # 壊れたフォントでも既定にフォールバック
     theme.font.cache_clear()
+
+
+def test_qr_is_cached():
+    assert make_qr("WIFI:T:WPA;S:a;P:bbbbbbbb;;", 140) is make_qr("WIFI:T:WPA;S:a;P:bbbbbbbb;;", 140)
+
+
+def test_setup_screens_show_code():
+    qr = "WIFI:T:WPA;S:x;P:y;;"
+    for render in (
+        lambda code: screens.render_setup(qr, "http://10.42.0.1/", code),
+        lambda code: screens.render_setup_full(qr, code=code),
+        lambda code: screens.render_error("エラー", qr, code),
+    ):
+        assert render("123456").tobytes() != render(None).tobytes()

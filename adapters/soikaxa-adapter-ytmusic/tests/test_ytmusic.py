@@ -10,9 +10,13 @@ VID = "dQw4w9WgXcQ"
 
 
 class FakeYT:
+    private: set = set()
+    songs = 1
+
     def __init__(self, auth, fail=None):
         self.auth = auth
         self.fail = fail
+        self.playlist_calls = []
 
     def _maybe_fail(self):
         if self.fail:
@@ -32,6 +36,9 @@ class FakeYT:
         ]
 
     def get_playlist(self, pid, limit):
+        self.playlist_calls.append((pid, limit))
+        if self.private and pid in self.private and not self.auth:
+            raise RuntimeError("404 not found")
         self._maybe_fail()
         return {
             "tracks": [
@@ -50,7 +57,7 @@ class FakeYT:
     def search(self, q, filter, limit):
         self._maybe_fail()
         if filter == "songs":
-            return [{"videoId": VID, "title": "Found", "artists": []}]
+            return [{"videoId": VID, "title": "Found", "artists": []}] * self.songs
         return [{"browseId": "VLPLabc", "title": "Public"}, {"title": "none"}]
 
 
@@ -184,3 +191,52 @@ def test_resolve_failures(tmp_path):
         adapter(tmp_path, exc=RuntimeError("Sign in to confirm")).resolve(VID)
     with pytest.raises(AdapterError):
         adapter(tmp_path, info={}).resolve(VID)
+
+
+def test_guest_search_never_uses_owner_account(tmp_path):
+    a = adapter(tmp_path)
+    a.register_auth("h")
+    a.search("q")
+    assert a.created == [None]  # 認証済みでも、検索は未認証クライアント
+
+
+def test_search_reserves_room_for_playlists(tmp_path, monkeypatch):
+    monkeypatch.setattr(FakeYT, "songs", 30)
+    res = adapter(tmp_path).search("q", limit=20)
+    assert len(res) == 20
+    assert [type(r).__name__ for r in res[-2:]] == ["Track", "Playlist"]  # 曲だけで上限を使い切らない
+
+
+def test_list_tracks_public_is_anonymous_and_capped(tmp_path):
+    a = adapter(tmp_path)
+    a.register_auth("h")
+    a.list_tracks("PLpublic")
+    assert a.created == [None]
+    assert a._clients[False].playlist_calls == [("PLpublic", 500)]
+
+
+def test_list_tracks_owner_playlist_uses_auth(tmp_path, monkeypatch):
+    monkeypatch.setattr(FakeYT, "private", {"PL1"})
+    a = adapter(tmp_path)
+    a.register_auth("h")
+    a.list_playlists()  # PL1 がオーナーのものと分かる
+    assert a.list_tracks("PL1") and a.created == [str(a.auth_path)]
+
+
+def test_list_tracks_private_falls_back_to_auth_after_restart(tmp_path, monkeypatch):
+    monkeypatch.setattr(FakeYT, "private", {"PL1"})
+    a = adapter(tmp_path)
+    a.register_auth("h")
+    assert a.list_tracks("PL1")  # 一覧を取っていなくても（自動再生）、未認証で失敗したら認証付きで取る
+    assert a.created == [None, str(a.auth_path)]
+    b = adapter(tmp_path / "noauth")
+    with pytest.raises(AdapterError):
+        b.list_tracks("PL1")  # 認証が無ければ非公開は取れない
+
+
+def test_clear_auth_drops_clients_and_owner_ids(tmp_path):
+    a = adapter(tmp_path)
+    a.register_auth("h")
+    a.list_playlists()
+    a.clear_auth()
+    assert a._clients == {} and a._owner_playlists == set()

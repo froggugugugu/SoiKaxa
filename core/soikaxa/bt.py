@@ -94,5 +94,9 @@ class BluetoothManager:
     def disconnect(self, mac: str) -> bool:
         return self.r.run(["bluetoothctl", "disconnect", validate_mac(mac)]).ok
 
+    def remove(self, mac: str) -> bool:
+        """ペアリング情報ごと削除する（初期化用）。"""
+        return self.r.run(["bluetoothctl", "remove", validate_mac(mac)]).ok
+
     def name_of(self, mac: str) -> str:
         return self.info(mac).get("Name", "")

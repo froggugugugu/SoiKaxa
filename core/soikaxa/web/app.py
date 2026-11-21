@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import secrets
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -22,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..adapters.base import AdapterError, AuthRequired, Playlist, Track
 from ..adapters.capabilities import AuthCapable
-from ..auth import PinGuard, PinLocked, SessionStore, hash_pin, verify_pin
+from ..auth import PinGuard, PinLocked, SessionStore, SetupCode, hash_pin, verify_pin
 from ..bt import BluetoothManager, InvalidMac
 from ..config import SettingsStore, Speaker
 from ..daemon import PlayerService, StatusView, TrackView
@@ -65,9 +67,38 @@ class SearchCache:
             v = self._items.get(("track", track_id))
             return v if isinstance(v, Track) else None
 
-    def has_playlist(self, playlist_id: str) -> bool:
+    def playlist(self, playlist_id: str) -> Playlist | None:
         with self._lock:
-            return ("playlist", playlist_id) in self._items
+            v = self._items.get(("playlist", playlist_id))
+            return v if isinstance(v, Playlist) else None
+
+
+class RateLimiter:
+    """キーごとの回数制限（直近 window 秒で limit 回まで）。"""
+
+    def __init__(
+        self, limit: int = 30, window_sec: float = 60.0, clock: Callable[[], float] = time.monotonic
+    ):
+        self.limit, self.window_sec, self._clock = limit, window_sec, clock
+        self._hits: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        now = self._clock()
+        with self._lock:
+            if len(self._hits) > 1000:  # 際限なく溜めない
+                self._hits.clear()
+            hits = [t for t in self._hits.get(key, []) if now - t < self.window_sec]
+            if len(hits) >= self.limit:
+                self._hits[key] = hits
+                return False
+            hits.append(now)
+            self._hits[key] = hits
+            return True
+
+
+Network = ipaddress.IPv4Network | ipaddress.IPv6Network
+MAX_GUEST_PLAYLIST_TRACKS = 200
 
 
 @dataclass
@@ -83,6 +114,12 @@ class AppContext:
     on_ap_change: Callable[[], None] = lambda: None
     extra_hosts: frozenset[str] = frozenset()
     secure_cookies: bool = False  # 端末 AP は http のみ
+    setup_code: SetupCode = field(default_factory=SetupCode)
+    search_limiter: RateLimiter = field(default_factory=RateLimiter)
+    # 空なら制限なし（テスト用）。実機では端末 AP のサブネットとループバックだけを許可する
+    allowed_networks: tuple[Network, ...] = ()
+    scrypt_slots: threading.BoundedSemaphore = field(default_factory=lambda: threading.BoundedSemaphore(2))
+    setup_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 # ---------- 変換 ----------
@@ -124,16 +161,31 @@ def _err(status: int, code: str, message: str = "") -> HTTPException:
 def create_app(ctx: AppContext) -> FastAPI:
     app = FastAPI(title="SoiKaxa", docs_url=None, redoc_url=None, openapi_url=None)
     svc, store = ctx.service, ctx.store
+    if store.load().owner_pin_hash is None:
+        ctx.setup_code.ensure()
+
+    def client_allowed(request: Request) -> bool:
+        if not ctx.allowed_networks:
+            return True
+        try:
+            addr = ipaddress.ip_address(request.client.host if request.client else "")
+        except ValueError:
+            return False
+        return any(addr in n for n in ctx.allowed_networks)
 
     @app.middleware("http")
     async def portal_and_headers(request: Request, call_next):
+        # 上流（会場 Wi-Fi）側からは受け付けない。Host ヘッダは偽装できるので送信元アドレスで判定する
+        if not client_allowed(request):
+            return JSONResponse({"detail": {"error": "forbidden_network"}}, status_code=403)
         if is_detection_request(request.headers.get("host"), request.url.path, ctx.extra_hosts):
             return RedirectResponse(PORTAL_URL, status_code=302)
         resp = await call_next(request)
         resp.headers["Content-Security-Policy"] = CSP
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["Referrer-Policy"] = "no-referrer"
-        resp.headers["Cache-Control"] = "no-store"
+        static = request.url.path.startswith("/static/")
+        resp.headers["Cache-Control"] = "public, max-age=86400" if static else "no-store"
         return resp
 
     @app.exception_handler(AuthRequired)
@@ -213,7 +265,16 @@ def create_app(ctx: AppContext) -> FastAPI:
         return out
 
     # ---------- ゲスト ----------
-    @app.get("/api/search", dependencies=[Depends(require_guest_access)])
+    def limit_search(request: Request) -> None:
+        if is_owner(request):
+            return
+        key = request.client.host if request.client else "unknown"
+        if not ctx.search_limiter.allow(key):
+            raise _err(429, "rate", "検索が多すぎます。少し待ってください")
+
+    guest_search = [Depends(require_guest_access), Depends(limit_search)]
+
+    @app.get("/api/search", dependencies=guest_search)
     def search(q: str) -> dict[str, Any]:
         q = q.strip()
         if not 1 <= len(q) <= 100:
@@ -223,11 +284,13 @@ def create_app(ctx: AppContext) -> FastAPI:
             ctx.cache.put(r)
         return {"results": [_item_json(r) for r in results]}
 
-    @app.get("/api/search/playlists/{playlist_id}", dependencies=[Depends(require_guest_access)])
+    @app.get("/api/search/playlists/{playlist_id}", dependencies=guest_search)
     def search_playlist(playlist_id: str) -> dict[str, Any]:
-        if not ctx.cache.has_playlist(playlist_id):
+        pl = ctx.cache.playlist(playlist_id)
+        if pl is None:
             raise _err(404, "not_found")
-        tracks = svc.playlist_tracks(playlist_id)
+        # 検索した時点の音源で展開する（途中で音源を切り替えても壊れない）
+        tracks = svc.playlist_tracks(playlist_id, pl.source or None)[:MAX_GUEST_PLAYLIST_TRACKS]
         for t in tracks:
             ctx.cache.put(t)
         return {"results": [_item_json(t) for t in tracks]}
@@ -259,11 +322,24 @@ def create_app(ctx: AppContext) -> FastAPI:
         return {"item_id": item.item_id}
 
     # ---------- オーナー: 認証 ----------
+    def locked(e: PinLocked) -> HTTPException:
+        return _err(423, "locked", f"{int(e.retry_after)} 秒後に再試行（本体を 10 秒長押しで解除）")
+
     @app.post("/api/owner/setup")
-    def owner_setup(body: s.PinIn, response: Response) -> dict[str, str]:
-        if store.load().owner_pin_hash is not None:
-            raise _err(409, "already_set")
-        store.update(owner_pin_hash=hash_pin(body.pin))
+    def owner_setup(body: s.SetupIn, response: Response) -> dict[str, str]:
+        """PIN の初回登録。本体 LCD に出ているセットアップコードを知っている人だけができる。"""
+        with ctx.setup_lock:  # 確認と保存を 1 つの操作にする（同時登録の後勝ちを防ぐ）
+            if store.load().owner_pin_hash is not None:
+                raise _err(409, "already_set")
+            try:
+                ok = ctx.pin_guard.attempt(ctx.setup_code.verify(body.setup_code))
+            except PinLocked as e:
+                raise locked(e) from e
+            if not ok:
+                raise _err(403, "wrong_code", "本体の画面に出ている設定コードを入力してください")
+            store.update(owner_pin_hash=hash_pin(body.pin))
+            ctx.setup_code.clear()
+        ctx.on_ap_change()  # LCD から設定コードを消す
         return login_response(response)
 
     @app.post("/api/owner/login")
@@ -272,9 +348,19 @@ def create_app(ctx: AppContext) -> FastAPI:
         if stored is None:
             raise _err(409, "no_pin")
         try:
-            ok = ctx.pin_guard.attempt(verify_pin(body.pin, stored))
+            ctx.pin_guard.check()  # ロック中は重い照合（scrypt）をしない
         except PinLocked as e:
-            raise _err(423, "locked", f"{int(e.retry_after)} 秒後に再試行") from e
+            raise locked(e) from e
+        if not ctx.scrypt_slots.acquire(blocking=False):
+            raise _err(429, "busy", "混み合っています。もう一度試してください")
+        try:
+            matched = verify_pin(body.pin, stored)
+        finally:
+            ctx.scrypt_slots.release()
+        try:
+            ok = ctx.pin_guard.attempt(matched)
+        except PinLocked as e:
+            raise locked(e) from e
         if not ok:
             raise _err(401, "wrong_pin", "PIN が違います")
         return login_response(response)
@@ -393,9 +479,10 @@ def create_app(ctx: AppContext) -> FastAPI:
             labels[body.ssid] = body.label.strip() or body.ssid
             store.update(wifi_labels=labels)
         if res.ok:
+            svc.net_notice = ""
             svc.dispatch(Event.NET_UP)
         elif res.reason == "captive_portal":
-            svc.health_notice = res.message
+            svc.net_notice = res.message
         return asdict(res)
 
     @app.delete("/api/owner/wifi/{ssid}", dependencies=owner)
@@ -415,13 +502,17 @@ def create_app(ctx: AppContext) -> FastAPI:
             "qr": wifi_qr_payload(st.ap_ssid or "", st.ap_password or ""),
         }
 
+    def new_ap() -> None:
+        """AP パスワードを作り直して張り直す。SSID が未保存なら一緒に保存する。"""
+        ssid, password = generate_ap_credentials(ctx.wifi.mac_address())
+        ssid = store.load().ap_ssid or ssid
+        store.update(ap_ssid=ssid, ap_password=password)
+        ctx.wifi.start_ap(ssid, password)
+        ctx.on_ap_change()
+
     @app.post("/api/owner/ap/regenerate", dependencies=owner)
     def ap_regenerate() -> dict[str, Any]:
-        st = store.load()
-        _, password = generate_ap_credentials(None)
-        store.update(ap_password=password)
-        ctx.wifi.start_ap(st.ap_ssid or generate_ap_credentials(None)[0], password)
-        ctx.on_ap_change()
+        new_ap()
         return ap_info()
 
     # ---------- オーナー: Bluetooth ----------
@@ -494,11 +585,16 @@ def create_app(ctx: AppContext) -> FastAPI:
                 a.clear_auth()
         for n in ctx.wifi.saved():
             ctx.wifi.delete(n.ssid)
+        for sp in store.load().known_speakers:
+            ctx.bt.remove(sp.mac)  # ペアリングも消す（初期化後に勝手に再接続させない）
         svc.queue.clear()
         store.reset()
         ctx.sessions.revoke_all()
         response.delete_cookie(OWNER_COOKIE, path="/")
-        ctx.on_ap_change()
+        # PIN が無い状態に戻る。それまで AP に入れた人が先に PIN を登録できないよう、
+        # 設定コードと AP パスワードを作り直す（どちらも本体の LCD にだけ出る）
+        ctx.setup_code.regenerate()
+        new_ap()
         return {"ok": True}
 
     return app

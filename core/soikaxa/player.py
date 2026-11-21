@@ -179,7 +179,7 @@ class MpvPlayer:
         self._t = transport
         self._end_cbs: list[Callable[[EndReason], None]] = []
         self._current_entry: int | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         transport.on_event(self._on_event)
 
     # ---- コマンド ----
@@ -192,9 +192,11 @@ class MpvPlayer:
     def play(self, resolved: Resolved) -> None:
         headers = [f"{k}: {v}" for k, v in resolved.headers.items()]
         self._cmd("set_property", "http-header-fields", headers)
-        data = self._cmd("loadfile", resolved.uri, "replace")
-        entry = data.get("playlist_entry_id") if isinstance(data, dict) else None
+        # loadfile の応答から entry id を記録し終えるまで end-file の処理を待たせる。
+        # 待たせないと、新しい曲の即時エラーを「古い曲の終了」と誤認して取りこぼす
         with self._lock:
+            data = self._cmd("loadfile", resolved.uri, "replace")
+            entry = data.get("playlist_entry_id") if isinstance(data, dict) else None
             self._current_entry = entry if isinstance(entry, int) else None
         self._cmd("set_property", "pause", False)
 

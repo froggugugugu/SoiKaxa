@@ -157,3 +157,9 @@ def test_press_while_pressed_keeps_first_timestamp():
     c.press(1.4)
     assert c.pressed
     assert c.tick(1.5) == Gesture.NEXT
+
+
+def test_bt_remove():
+    r = bt_runner()
+    assert bt.BluetoothManager(r).remove(MAC.lower())
+    assert r.calls[-1] == ["bluetoothctl", "remove", MAC]

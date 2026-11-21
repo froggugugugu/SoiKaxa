@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 NAME = "ytmusic"
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{2,64}$")
+MAX_PLAYLIST_TRACKS = 500
 YTDL_OPTS = {
     "format": "bestaudio[ext=webm]/bestaudio",
     "quiet": True,
@@ -82,7 +83,8 @@ class YTMusicAdapter:
         self._ytmusic_factory = ytmusic_factory
         self._ytdl_factory = ytdl_factory
         self._setup = setup
-        self._client: Any = None
+        self._clients: dict[bool, Any] = {}
+        self._owner_playlists: set[str] = set()
         self._lock = threading.Lock()
 
     @property
@@ -106,19 +108,25 @@ class YTMusicAdapter:
         os.chmod(self.auth_dir, 0o700)
         write_private_file(self.auth_path, text)
         with self._lock:
-            self._client = None
+            self._clients.clear()
+            self._owner_playlists = set()
 
     def clear_auth(self) -> None:
         self.auth_path.unlink(missing_ok=True)
         with self._lock:
-            self._client = None
+            self._clients.clear()
+            self._owner_playlists = set()
 
     # ---- 内部 ----
-    def _yt(self) -> Any:
+    def _yt(self, auth: bool) -> Any:
+        """auth=True はオーナーの認証付き、False は未認証のクライアント。
+
+        ゲストの検索・公開プレイリスト展開は未認証で行い、オーナーのアカウントを使わない。
+        """
         with self._lock:
-            if self._client is None:
-                self._client = self._ytmusic_factory(str(self.auth_path) if self.has_auth() else None)
-            return self._client
+            if auth not in self._clients:
+                self._clients[auth] = self._ytmusic_factory(str(self.auth_path) if auth else None)
+            return self._clients[auth]
 
     def _call(self, fn: Callable[[], Any]) -> Any:
         try:
@@ -135,7 +143,7 @@ class YTMusicAdapter:
     def list_playlists(self) -> list[Playlist]:
         if not self.has_auth():
             raise AuthRequired("認証が未登録です")
-        items = self._call(lambda: self._yt().get_library_playlists(limit=100)) or []
+        items = self._call(lambda: self._yt(True).get_library_playlists(limit=100)) or []
         out = []
         for it in items:
             pid = it.get("playlistId")
@@ -149,12 +157,26 @@ class YTMusicAdapter:
             out.append(
                 Playlist(id=pid, title=it.get("title", pid), track_count=n, source=NAME, thumbnail=_thumb(it))
             )
+        self._owner_playlists = {p.id for p in out}
         return out
 
     def list_tracks(self, playlist_id: str) -> list[Track]:
         if not PLAYLIST_ID_RE.fullmatch(playlist_id or ""):
             raise AdapterError("invalid playlist id")
-        data = self._call(lambda: self._yt().get_playlist(playlist_id, limit=None)) or {}
+
+        def fetch(auth: bool) -> dict[str, Any]:
+            yt = self._yt(auth)
+            return self._call(lambda: yt.get_playlist(playlist_id, limit=MAX_PLAYLIST_TRACKS)) or {}
+
+        if playlist_id in self._owner_playlists and self.has_auth():
+            data = fetch(True)
+        else:
+            try:
+                data = fetch(False)  # 公開プレイリストは未認証で取る
+            except AdapterError:
+                if not self.has_auth():
+                    raise
+                data = fetch(True)  # 再起動直後の自動再生など、オーナーの非公開プレイリスト
         return [t for t in (self._track(it) for it in data.get("tracks") or []) if t]
 
     def _track(self, it: dict[str, Any]) -> Track | None:
@@ -175,14 +197,18 @@ class YTMusicAdapter:
         q = (query or "").strip()
         if not q:
             return []
-        songs = self._call(lambda: self._yt().search(q, filter="songs", limit=limit)) or []
-        out: list[Track | Playlist] = [t for t in (self._track(s) for s in songs) if t]
-        pls = self._call(lambda: self._yt().search(q, filter="community_playlists", limit=5)) or []
-        for p in pls:
+        yt = self._yt(False)
+        songs = self._call(lambda: yt.search(q, filter="songs", limit=limit)) or []
+        tracks: list[Track | Playlist] = [t for t in (self._track(s) for s in songs) if t]
+        found = self._call(lambda: yt.search(q, filter="community_playlists", limit=5)) or []
+        pls: list[Track | Playlist] = []
+        for p in found[:5]:
             pid = p.get("playlistId") or (p.get("browseId") or "").removeprefix("VL")
             if pid:
-                out.append(Playlist(id=pid, title=p.get("title", pid), source=NAME, thumbnail=_thumb(p)))
-        return out[:limit]
+                pls.append(Playlist(id=pid, title=p.get("title", pid), source=NAME, thumbnail=_thumb(p)))
+        pls = pls[:limit]
+        # プレイリストの枠を先に確保する（曲だけで上限を使い切らない）
+        return tracks[: limit - len(pls)] + pls
 
     def resolve(self, track_id: str) -> Resolved:
         if not VIDEO_ID_RE.fullmatch(track_id or ""):
