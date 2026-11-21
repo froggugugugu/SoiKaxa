@@ -49,6 +49,7 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 
 ## 3. 次にやること（優先順）
 
+0. 実機の手順書は `docs/setup-raspberry-pi.md`（2026-11-21 作成、実機未検証）。結果は `scripts/04_report.sh` の出力で共有
 1. 【人間】一次 PRD フェーズ 0〜1: `scripts/01_setup.sh` → `scripts/02_verify.sh` → `docs/phase1-results.md` 記入
 2. ~~ライセンス決定~~ → MIT に決定、`LICENSE` 追加済み（2026-11-21）
 3. Pi で `scripts/03_install.sh`（起動しない場合は `soikaxa@.service` のサンドボックス節を外して切り分け） → `journalctl -u soikaxa@<user> -f` で起動確認。nmcli / bluetoothctl の実出力がパーサと合うか確認（落とし穴表）

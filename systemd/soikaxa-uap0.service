@@ -1,0 +1,17 @@
+# 任意: AP 用の仮想インターフェース uap0 を wlan0 の上に作る。
+# NetworkManager は 1 つのデバイスで AP と上流 Wi-Fi を同時に有効にできないため、AP を uap0 に分ける。
+# 有効化の手順は docs/setup-raspberry-pi.md の「AP と上流 Wi-Fi を同時に使う」を参照。
+[Unit]
+Description=SoiKaxa virtual AP interface (uap0 on wlan0)
+After=sys-subsystem-net-devices-wlan0.device
+BindsTo=sys-subsystem-net-devices-wlan0.device
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/iw dev wlan0 interface add uap0 type __ap
+ExecStop=/usr/sbin/iw dev uap0 del
+
+[Install]
+WantedBy=multi-user.target

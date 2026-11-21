@@ -92,7 +92,9 @@ def build_runtime(fake: bool | None = None) -> Runtime:
         http_get = default_http_get
     sta_if = os.environ.get("SOIKAXA_STA_IF", "wlan0")
     ap_if = os.environ.get("SOIKAXA_AP_IF", sta_if)
-    wifi = WifiManager(runner, sta_if=sta_if, ap_if=ap_if, http_get=http_get)
+    # AP を wlan0 上の仮想 IF（uap0）にした場合は SOIKAXA_AP_SAME_RADIO=1。USB ドングルなら未設定
+    same_radio = True if os.environ.get("SOIKAXA_AP_SAME_RADIO") == "1" else None
+    wifi = WifiManager(runner, sta_if=sta_if, ap_if=ap_if, http_get=http_get, same_radio=same_radio)
     bt = BluetoothManager(runner)
     player = MpvPlayer(transport)
     svc = PlayerService(adapters=load_adapters(d), player=player, store=store)

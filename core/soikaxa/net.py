@@ -151,11 +151,15 @@ class WifiManager:
         sta_if: str = "wlan0",
         ap_if: str = "wlan0",
         http_get: HttpGet = default_http_get,
+        same_radio: bool | None = None,
     ):
         self.r = runner
         self.sta_if = sta_if
         self.ap_if = ap_if
         self.http_get = http_get
+        # AP と STA が同じ無線チップを使うか。同じならチャンネルを揃えないと同時に動かない。
+        # 既定は「同じインターフェース名なら同じ」。wlan0 上の仮想 IF（uap0）を使うときは True を渡す
+        self.same_radio = (sta_if == ap_if) if same_radio is None else same_radio
 
     # ---- スキャン ----
     def scan(self, rescan: bool = True) -> list[WifiNetwork]:
@@ -268,6 +272,8 @@ class WifiManager:
     def start_ap(self, ssid: str, password: str, channel: int | None = None) -> bool:
         validate_ssid(ssid)
         validate_password(password)
+        if channel is None and self.same_radio:
+            channel = self.sta_channel()  # 上流に接続済みなら最初から同じチャンネルで立てる
         self.r.run(["nmcli", "connection", "delete", AP_CON_NAME])
         args = [
             "nmcli",
@@ -313,8 +319,8 @@ class WifiManager:
         return None
 
     def sync_ap_channel(self) -> int | None:
-        """STA と AP が同一 IF の場合、AP を STA と同じチャンネルへ寄せる（同時動作の前提）。"""
-        if self.sta_if != self.ap_if:
+        """STA と AP が同じ無線チップなら、AP を STA と同じチャンネルへ寄せる（同時動作の前提）。"""
+        if not self.same_radio:
             return None
         ch = self.sta_channel()
         if ch is None:

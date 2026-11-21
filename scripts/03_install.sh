@@ -8,6 +8,10 @@ HOME_DIR="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 ROOT="$HOME_DIR/soikaxa"
 VENV="$ROOT/.venv"
 
+echo "== [0/5] ビルドに必要なパッケージ（evdev のコンパイル用）と iw =="
+apt-get update
+apt-get install -y --no-install-recommends python3-dev build-essential iw
+
 echo "== [1/5] Python パッケージ（コア + アダプタ） =="
 sudo -u "$USER_NAME" "$VENV/bin/pip" install --quiet -e "$ROOT/core[pi]"
 if [[ -d "$ROOT/adapters/soikaxa-adapter-ytmusic" ]]; then

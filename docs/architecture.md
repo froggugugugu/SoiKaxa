@@ -26,8 +26,8 @@ core/soikaxa/            # コアパッケージ（音源を知らない）
 ├── web/                 # FastAPI と static/（index.html, jsQR.js）
 └── *.py                 # runner/config/auth/state/queue/player/net/bt/portal/touch/health/watchdog/daemon/bootstrap/fakes
 adapters/soikaxa-adapter-ytmusic/  # 音源アダプタ（将来は別リポジトリ）
-scripts/                 # 01_setup / 02_verify / 03_install / update_ytdlp / check_deps
-systemd/                 # soikaxa@, soikaxa-update@(.timer), soikaxa-health@(.timer), polkit
+scripts/                 # 01_setup / 02_verify / 03_install / 04_report / update_ytdlp / check_deps
+systemd/                 # soikaxa@, soikaxa-uap0（任意）, soikaxa-update@(.timer), soikaxa-health@(.timer), polkit
 tests/                   # コアのテスト
 ```
 
@@ -54,6 +54,7 @@ tests/                   # コアのテスト
 | ----------------------------- | ------------------------------------------------------ |
 | `docs/PRD.md` / `docs/DECISIONS.md` | 一次仕様・設計判断（input から取込） |
 | `docs/project.md`             | コマンド、技術スタック、環境変数、ルーティング         |
+| `docs/setup-raspberry-pi.md`  | 実機（Pi 4B）のセットアップと動作確認の手順            |
 | `docs/architecture.md`        | ディレクトリ構成、テスト一覧、ドキュメント責務         |
 | `docs/data-model.md`          | 設定スキーマ、バリデーションルール                     |
 | `docs/development-patterns.md`| コード規約、落とし穴                                   |

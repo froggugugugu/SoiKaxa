@@ -143,6 +143,25 @@ def test_start_ap_args():
     assert not mgr(r2).start_ap("soikaxa-ABCD", "abcdefghjk")
 
 
+def test_virtual_ap_interface_on_same_radio_follows_sta_channel():
+    """uap0（wlan0 上の仮想 IF）は別名でも同じ無線チップ。チャンネルを STA に合わせる。"""
+    r = FakeRunner().on(SCAN_PREFIX, CommandResult(0, SCAN))
+    m = mgr(r, ap_if="uap0", same_radio=True)
+    assert m.start_ap("soikaxa-ABCD", "abcdefghjk")
+    add = r.called("nmcli", "connection", "add")[0]
+    assert add[add.index("ifname") + 1] == "uap0"
+    assert (
+        add[add.index("802-11-wireless.channel") + 1] == "36"
+        and add[add.index("802-11-wireless.band") + 1] == "a"
+    )
+    assert m.sync_ap_channel() == 36
+    # 上流に未接続ならチャンネル指定なし（2.4GHz）
+    add2 = (
+        lambda rr: (mgr(rr, ap_if="uap0", same_radio=True).start_ap("soikaxa-ABCD", "abcdefghjk"), rr)[1]
+    )(FakeRunner()).called("nmcli", "connection", "add")[0]
+    assert "802-11-wireless.channel" not in add2
+
+
 def test_sync_channel_skipped_for_separate_interfaces_or_no_sta():
     assert mgr(FakeRunner(), ap_if="wlan1").sync_ap_channel() is None
     assert mgr(FakeRunner()).sync_ap_channel() is None
