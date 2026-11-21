@@ -1,10 +1,10 @@
 # 法務チェック — SoiKaxa v1（2026-11-21）
 
-総合: **CRITICAL 0**。要対応 1 件（ライセンス未決）。jsQR の表記は README に追記済み
+総合: **CRITICAL 0**。要対応 0 件（ライセンスは MIT に決定・`LICENSE` 追加済み。jsQR の表記は README に追記済み）
 
 ## プロジェクトのライセンス
 
-- 未決（PRD Q-1）。推奨は MIT。`LICENSE` が無い間は第三者が利用できない（公開前チェックの未完項目）
+- MIT（2026-11-21 オーナー決定）。`LICENSE` と各 pyproject の `license = "MIT"` を追加
 - アダプタ README に免責（個人利用・自己責任・規約抵触の可能性）を記載済み
 
 ## ランタイム依存（`pip-licenses`）

@@ -3,6 +3,7 @@ name = "soikaxa"
 version = "0.1.0"
 description = "Standalone Raspberry Pi Bluetooth music player core"
 requires-python = ">=3.11"
+license = "MIT"
 dependencies = [
   "fastapi>=0.110",
   "uvicorn>=0.29",

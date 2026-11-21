@@ -9,6 +9,6 @@ Bluetooth スピーカーに音楽を流す、Raspberry Pi ベースの単体完
 
 音源はソースアダプタで差し替え可能（ローカル MP3 同梱、その他は `adapters/` の別パッケージ）。
 
-ライセンス: 未決（MIT を推奨案として検討中）
+ライセンス: [MIT](LICENSE)
 
 同梱物: jsQR 1.4.0（Apache-2.0、`core/soikaxa/web/static/jsQR.LICENSE`）

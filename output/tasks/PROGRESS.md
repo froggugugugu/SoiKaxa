@@ -50,7 +50,7 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 ## 3. 次にやること（優先順）
 
 1. 【人間】一次 PRD フェーズ 0〜1: `scripts/01_setup.sh` → `scripts/02_verify.sh` → `docs/phase1-results.md` 記入
-2. 【人間】ライセンス決定（MIT 推奨）→ `LICENSE` と pyproject の `license` を追加
+2. ~~ライセンス決定~~ → MIT に決定、`LICENSE` 追加済み（2026-11-21）
 3. Pi で `scripts/03_install.sh` → `journalctl -u soikaxa@<user> -f` で起動確認。nmcli / bluetoothctl の実出力がパーサと合うか確認（落とし穴表）
 4. 実アカウントで ytmusic アダプタ（認証登録 → プレイリスト → 再生）
 5. フェーズ 5: overlayfs、Deno 導入、電源ブチ切り 20 回

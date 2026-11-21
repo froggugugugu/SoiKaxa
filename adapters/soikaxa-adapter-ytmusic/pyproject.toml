@@ -3,6 +3,7 @@ name = "soikaxa-adapter-ytmusic"
 version = "0.1.0"
 description = "YouTube Music source adapter for SoiKaxa (personal use only)"
 requires-python = ">=3.11"
+license = "MIT"
 dependencies = ["soikaxa", "ytmusicapi>=1.8", "yt-dlp>=2024.10.0"]
 
 [project.entry-points."soikaxa.adapters"]
