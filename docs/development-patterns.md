@@ -1,103 +1,50 @@
 # 開発パターン集
 
-> **これはテンプレートです。** セットアップ直後は空の状態です。
-> 以下のいずれかの方法で内容が生成されます:
-> - `/implementing-features` スキルで新パターン発見時に自動追記
-> - `/performance` `/refactoring` スキル実行時に自動追記
-> - PJMチームのPhase 4以降で自動生成
->
-> **生成方法**: `project-config.md` セクション2, 11 を基にAIが初期生成する。
-> 新しいパターンや落とし穴の発見時にAI・人間が協調メンテナンスする。
-
-プロジェクト固有のコード規約・落とし穴・アンチパターンをまとめる。
-汎用的な知識はここには含めない。
-ルート定義・ストア一覧・ディレクトリ構成・スキーマ定義は `docs/project.md`, `docs/architecture.md`, `docs/data-model.md` を参照。
+プロジェクト固有のコード規約・落とし穴。構成は `docs/architecture.md`、スキーマは `docs/data-model.md`。
 
 ---
 
-## 1. 状態管理
+## 1. 外部プロセスの扱い
 
-<!-- project-config.md セクション2「状態管理」の技術に基づき、
-     セレクタ、永続化、マイグレーション等のパターンを記述 -->
+- nmcli / bluetoothctl / systemctl / vcgencmd は必ず `CommandRunner` 経由で、**引数配列**で渡す（シェルを使わない）
+- テストは `soikaxa.fakes.FakeRunner().on([...prefix], CommandResult(...))` で応答を登録する。後から登録したルールが優先
+- nmcli は `-t`（terse）出力のみパースする。`\:` エスケープは `net.split_terse` で解く
+- bluetoothctl に渡す値は `bt.validate_mac` を通した MAC のみ
+- mpv は `MpvTransport` を注入する。テストは `FakeTransport`（`finish()` で現在曲の EOF を発火）
 
-### 1.1 セレクタの注意点
+## 2. 再生ループ
 
-<!-- 状態管理ライブラリ固有のアンチパターン -->
+- 現在曲の終了判定は mpv の `playlist_entry_id` で行う。`loadfile replace` で差し替えた旧曲の `end-file(stop)` を次曲送りと誤認しない
+- `PlayerService._advance()` は RLock 内でループし、resolve/play の失敗はスキップ。連続 `max_consecutive_failures` 回でフォールバック（`local`）へ切替
+- 先読みは次曲 1 曲だけ（アカウントのボット判定リスクを下げる）。期限 30 秒前を過ぎた先読み結果は捨てて再解決
+- 非同期処理は `run_async` を注入してテストでは同期実行する
 
-### 1.2 永続化パターン
+## 3. コア / アダプタ境界
 
-<!-- 永続化の方式と注意点 -->
+- `adapters/base.py` は変更しない（D-09）。アダプタ固有操作は `adapters/capabilities.AuthCapable` のような任意 Protocol で表し、`isinstance` で判定する
+- コアに `youtube` / `ytmusic` の文字列を書かない（`scripts/check_deps.py` が検出）。README・SSID にも入れない
+- アダプタは entry point `soikaxa.adapters` の `factory(data_dir)` で生成する
 
-### 1.3 マイグレーション
+## 4. Web
 
-<!-- データマイグレーションのパターン -->
-
----
-
-## 2. UIフレームワーク固有
-
-<!-- project-config.md セクション2「その他」の技術に基づき、
-     フレームワーク固有の注意点を記述 -->
-
----
-
-## 3. 数値精度
-
-<!-- プロジェクトで扱う数値の丸め・精度に関するルール -->
-
----
-
-## 4. データモデル変更時の規約
-
-### スキーマ追加
-
-<!-- 後方互換のための規約 -->
-
-### マイグレーション
-
-<!-- データマイグレーション時の規約 -->
-
-### スキーマ設計パターン
-
-<!-- Create / Update 派生型等のパターン -->
-
----
+- DOM 生成は `textContent` / `createElement` のみ。`innerHTML` 禁止（CSP は `script-src 'self' 'unsafe-inline'`）
+- 外部リソースは同一オリジンのみ（jsQR は `web/static/` に同梱）。getUserMedia は使わない（ポータル簡易ブラウザで不可）
+- 入力欄は `autocorrect=off autocapitalize=off spellcheck=false`
+- オーナーの状態変更 API は `X-SoiKaxa-CSRF` 必須。CSRF なしのオーナー Cookie はゲスト扱い
+- ゲストが追加できるのは `SearchCache` にある ID だけ
 
 ## 5. UI 規約
 
-### ダークモード
+- 色トークン（LCD `lcd/theme.py` と Web の CSS 変数で同じ値）: 背景 `#0B0F14`、シアン `#5DCAA5`、マゼンタ `#ED93B1`、文字 `#C9D1D9`、補助 `#7D8590`
+- ダークテーマ固定（端末用途）。QR は白地に黒・静止
+- LCD のテキストは `screens.fit_text` で幅に収め、はみ出しは「…」
+- タップ領域は 44px 以上
 
-```typescript
-// OK: セマンティックカラー（自動対応）
-className="text-foreground bg-background border-border"
+## 6. テストパターン
 
-// OK: ダークモード対応ユーティリティ
-className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-
-// NG: ハードコードされた色値
-style={{ backgroundColor: '#f0f0f0' }}
-```
-
-### コンポーネント設計
-
-- **Presentational**: props のみに依存、ストアを直接参照しない
-- **Container**: ストア/hooks を使用、pages ディレクトリまたは feature のトップに配置
-
-### 条件付きスタイル
-
-<!-- プロジェクトで使用するスタイル合成ヘルパーを記載 -->
-
----
-
-## 6. E2E テストパターン
-
-### テストデータ注入
-
-<!-- project-config.md セクション11 に基づき、テストデータの注入方法を記述 -->
-
-### UIコンポーネント操作ヘルパー
-
-<!-- フレームワーク固有のUIコンポーネント操作パターン -->
+- 設定ファイルは `tmp_path` の `SettingsStore` を使う
+- Web は `TestClient(create_app(ctx), base_url="http://10.42.0.1")`（Host がポータル判定に使われるため）
+- AF_UNIX ソケットは macOS でパス長制限（104 バイト）がある。`tmp_path` ではなく `/tmp` 直下に作る
 
 ---
 
@@ -105,32 +52,16 @@ style={{ backgroundColor: '#f0f0f0' }}
 
 ### 7.1 参照するデザインシステム
 
-<!-- project-config.md セクション7 から展開 -->
-
 | リソース | URL | 用途 |
 | -------- | --- | ---- |
-
-### 7.2 カラートークン
-
-<!-- プロジェクトで使用するCSSカラートークンを記載 -->
-
-### 7.3 スペーシングスケール
-
-<!-- 使用するスペーシングスケールを記載 -->
-
-### 7.4 コンポーネント追加手順
-
-<!-- UIコンポーネントライブラリの追加手順 -->
-
-### 7.5 アイコン使用規約
-
-<!-- アイコンライブラリの使用方法 -->
+| PRD 9.5 | `docs/PRD.md` | 配色・フォント・回転レコード |
 
 ---
 
 ## 8. 過去の問題事例
 
-<!-- project-config.md セクション11 から展開。開発中に発見した問題を追記 -->
-
 | 問題 | 原因 | 対策 |
 | ---- | ---- | ---- |
+| ruff format が `base.py` を整形し D-09（無変更）に反する | 一括整形 | `pyproject.toml` の `extend-exclude` に追加、`tests/test_deps.py` で原本一致を検査 |
+| Pillow 13 に RGB565 のパッカーがない | `tobytes("raw","BGR;16")` 非対応 | `ImageChops` によるチャンネル演算で変換（`lcd/fb.py`） |
+| フック（PreToolUse）が `sudo` を含むコマンド文字列をブロック | ハーネスの安全ルール | `sudo` を含むスクリプトは Write ツールで作成 |

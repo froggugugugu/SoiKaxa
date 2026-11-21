@@ -81,16 +81,17 @@ flowchart LR
 
 | カテゴリ         | 技術                                          |
 | ---------------- | --------------------------------------------- |
-| フレームワーク   | <!-- 例: React 19, TypeScript 5.x, Vite 7 --> |
-| スタイリング     | <!-- 例: Tailwind CSS 4, shadcn/ui -->         |
-| 状態管理         | <!-- 例: Zustand 5 -->                         |
-| バリデーション   | <!-- 例: Zod 3.x -->                           |
-| ルーティング     | <!-- 例: React Router DOM 7 -->                |
-| アイコン         | <!-- 例: lucide-react -->                      |
-| コード品質       | <!-- 例: Biome 2.x / ESLint 9 -->              |
-| 依存方向チェック | <!-- 例: dependency-cruiser 17 / なし -->       |
-| Git Hooks        | <!-- 例: husky 9, lint-staged 16 / なし -->     |
-| テスト           | <!-- 例: Vitest 4, Playwright 1.x -->          |
+| フレームワーク   | Python 3.11、FastAPI + uvicorn（Web）、mpv JSON IPC（再生） |
+| スタイリング     | 単一 HTML のインライン CSS（CSS 変数トークン、外部 CDN なし） |
+| 状態管理         | `PlayerService`（メモリ）+ `SettingsStore`（JSON ファイル） |
+| バリデーション   | pydantic（FastAPI 同梱）                       |
+| ルーティング     | FastAPI ルーター、画面はハッシュ（`#owner`）    |
+| アイコン         | なし（テキストボタン）                         |
+| コード品質       | ruff（lint + format）、mypy                    |
+| 依存方向チェック | `scripts/check_deps.py`（AST）                 |
+| Git Hooks        | なし                                           |
+| テスト           | pytest + pytest-cov、fastapi TestClient        |
+| その他           | Pillow + qrcode（LCD）、ytmusicapi + yt-dlp（アダプタ）、jsQR 1.4.0（同梱）、uv workspace |
 
 ---
 
@@ -108,15 +109,17 @@ flowchart LR
 | pnpm | `pnpm run` | `pnpm install` | ディスク効率が高い |
 | bun | `bun run` | `bun install` | 高速な代替ランタイム |
 
+本プロジェクトは Python（uv）を使う:
+
 ```bash
-<pm> run dev              # 開発サーバー
-<pm> run build            # 本番ビルド
-<pm> run lint             # リント
-<pm> run test             # テスト
-<pm> run test:run         # テスト一回実行
-<pm> run test:coverage    # カバレッジ付きテスト
-# <pm> run e2e            # E2Eテスト（使用する場合）
-# <pm> run depcruise      # 依存方向チェック（使用する場合）
+uv sync --all-packages                     # インストール
+SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_FAKE=1 SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 \
+  uv run python -m soikaxa.daemon          # 開発サーバー（フェイク）
+uv run ruff check . && uv run ruff format --check .   # リント
+uv run mypy core/soikaxa adapters/soikaxa-adapter-ytmusic/soikaxa_adapter_ytmusic  # 型チェック
+uv run pytest                              # テスト
+uv run pytest --cov --cov-report=html:testreport/coverage  # カバレッジ付きテスト
+uv run python scripts/check_deps.py        # 依存方向チェック
 ```
 
 ---
@@ -371,7 +374,11 @@ output/reports/                ← 人間向けサマリー（Git管理）
 
 | 問題 | 原因 | 対策 |
 | ---- | ---- | ---- |
-| <!-- 問題の概要 --> | <!-- 根本原因 --> | <!-- 対策 --> |
+| mpv の旧曲 `end-file` で次曲が二重に進む | `loadfile replace` が旧曲の end-file(stop) を出す | `playlist_entry_id` で現在曲の eof/error だけを扱う（`player.py`） |
+| `base.py` が整形で変わる | ruff format の一括適用 | ruff の対象外に指定、`tests/test_deps.py` で原本一致を検査 |
+| AF_UNIX ソケットのテストが macOS で失敗 | パス長 104 バイト制限 | `/tmp` 直下に作る |
+| Pillow で RGB565 が出せない | Pillow 13 に `BGR;16` パッカーがない | `lcd/fb.py` のチャンネル演算で変換 |
+| nmcli / bluetoothctl の出力形式が版で異なりうる | 実機未検証（開発 PC は Mock） | terse 出力のみパース・未知行は無視。実機フェーズで確認 |
 
 ### フレームワーク固有パターン
 
