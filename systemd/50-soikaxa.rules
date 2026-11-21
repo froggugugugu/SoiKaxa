@@ -1,0 +1,12 @@
+// polkit: SoiKaxa デーモンの実行ユーザー（soikaxa グループ）に
+// NetworkManager の操作と更新ユニットの起動だけを許可する。
+// 配置先: /etc/polkit-1/rules.d/50-soikaxa.rules
+polkit.addRule(function(action, subject) {
+  if (!subject.isInGroup("soikaxa")) return polkit.Result.NOT_HANDLED;
+  if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0) return polkit.Result.YES;
+  if (action.id === "org.freedesktop.systemd1.manage-units") {
+    var unit = action.lookup("unit") || "";
+    if (unit.indexOf("soikaxa-update@") === 0 && action.lookup("verb") === "start") return polkit.Result.YES;
+  }
+  return polkit.Result.NOT_HANDLED;
+});

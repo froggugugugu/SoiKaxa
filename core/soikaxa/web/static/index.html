@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>SoiKaxa</title>
+<style>
+  :root { --bg:#0B0F14; --panel:#111821; --line:#1C242C; --cyan:#5DCAA5; --magenta:#ED93B1; --fg:#C9D1D9; --muted:#7D8590;
+          --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Noto Sans Mono CJK JP", Menlo, Consolas, monospace; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 var(--mono); padding:16px 14px 48px; max-width:560px; margin-inline:auto; }
+  h1 { font-size:18px; letter-spacing:.12em; margin:0 0 12px; } h1 b { color:var(--cyan); }
+  h2 { font-size:14px; color:var(--muted); margin:22px 0 8px; letter-spacing:.08em; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
+  .now { display:flex; gap:14px; align-items:center; }
+  .disc { width:72px; height:72px; border-radius:50%; flex:none; border:2px solid var(--cyan);
+          background: radial-gradient(circle, var(--bg) 0 6px, #1a2a33 7px 22px, #10151B 23px 100%); position:relative; }
+  .disc::after { content:""; position:absolute; inset:6px; border-radius:50%; border-top:3px solid var(--magenta); }
+  .disc.spin { animation: spin 9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .title { font-size:17px; color:var(--fg); overflow-wrap:anywhere; } .sub { color:var(--muted); font-size:13px; }
+  .notice { color:var(--magenta); font-size:13px; margin-top:6px; }
+  ul { list-style:none; margin:0; padding:0; } li { padding:8px 0; border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; }
+  li:last-child { border-bottom:none; } li .grow { flex:1; min-width:0; overflow-wrap:anywhere; }
+  input, select { width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; min-height:44px; }
+  input:focus { outline:2px solid var(--cyan); }
+  input[type=range], input[type=checkbox] { accent-color: var(--cyan); }
+  button { background:transparent; color:var(--cyan); border:1px solid var(--cyan); border-radius:8px; padding:8px 12px; font:inherit; min-height:44px; min-width:44px; cursor:pointer; }
+  button.primary { background:var(--cyan); color:var(--bg); } button.warn { color:var(--magenta); border-color:var(--magenta); }
+  button:disabled { opacity:.4; }
+  .row { display:flex; gap:8px; align-items:center; margin:8px 0; } .row > * { flex:1; } .row > button { flex:none; }
+  label.chk { display:flex; gap:8px; align-items:center; min-height:44px; } label.chk input { width:auto; min-height:auto; }
+  .toast { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); background:var(--panel); border:1px solid var(--cyan); padding:10px 14px; border-radius:10px; max-width:90vw; }
+  .hidden { display:none !important; } a { color:var(--cyan); } small { color:var(--muted); }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; } .tabs button[aria-selected="true"] { background:var(--cyan); color:var(--bg); }
+</style>
+</head>
+<body>
+<h1>SOI<b>KAXA</b></h1>
+
+<section aria-live="polite">
+  <div class="now">
+    <div id="disc" class="disc" aria-hidden="true"></div>
+    <div>
+      <div class="title" id="nowTitle">—</div>
+      <div class="sub" id="nowSub"></div>
+      <div class="notice" id="notice"></div>
+    </div>
+  </div>
+  <h2>次の曲</h2>
+  <ul id="upcoming"></ul>
+</section>
+
+<!-- ゲストビュー -->
+<div id="guestView">
+  <section id="guestClosed" class="hidden"><p>ゲスト受付は停止中です。</p></section>
+  <section id="guestOpen">
+    <label for="guestName"><small>名前（任意・20 文字まで）</small></label>
+    <input id="guestName" maxlength="20" autocomplete="nickname" autocorrect="off" autocapitalize="off" spellcheck="false">
+    <form id="searchForm" class="row" role="search">
+      <input id="q" type="search" maxlength="100" placeholder="曲・プレイリストを検索" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="検索">
+      <button class="primary" type="submit">検索</button>
+    </form>
+    <ul id="results"></ul>
+  </section>
+  <p><a href="#owner" id="toOwner">オーナーはこちら</a></p>
+</div>
+
+<!-- オーナービュー -->
+<div id="ownerView" class="hidden">
+  <section id="pinBox">
+    <p id="pinLabel">オーナー PIN（4〜8 桁）</p>
+    <form id="pinForm" class="row">
+      <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="current-password" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="PIN">
+      <button class="primary" type="submit" id="pinBtn">入る</button>
+    </form>
+    <p><a href="#">ゲスト画面へ戻る</a></p>
+  </section>
+
+  <div id="ownerPanel" class="hidden">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="play" aria-selected="true">再生</button>
+      <button role="tab" data-tab="wifi">Wi-Fi</button>
+      <button role="tab" data-tab="spk">スピーカー</button>
+      <button role="tab" data-tab="src">音源</button>
+      <button role="tab" data-tab="cfg">設定</button>
+    </div>
+
+    <section data-panel="play">
+      <div class="row">
+        <button data-act="toggle">再生/停止</button><button data-act="next">次の曲</button>
+      </div>
+      <label for="vol"><small>音量 <span id="volVal"></span></small></label>
+      <input id="vol" type="range" min="0" max="100">
+      <h2>マイプレイリスト</h2>
+      <ul id="playlists"></ul>
+      <h2>キュー</h2>
+      <ul id="queue"></ul>
+    </section>
+
+    <section data-panel="wifi" class="hidden">
+      <div class="row"><button id="wifiScan">スキャン</button><button id="wifiManualBtn">一覧にない/ステルス</button></div>
+      <ul id="wifiList"></ul>
+      <form id="wifiForm" class="hidden">
+        <label><small>SSID</small><input id="wSsid" maxlength="32" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+        <label class="chk"><input id="wHidden" type="checkbox"> ステルス（一覧に出ない）</label>
+        <label><small>パスワード（Live Text: 入力欄を長押し →「テキストをスキャン」）</small>
+          <input id="wPass" type="text" maxlength="63" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+        <label class="chk"><input id="wShow" type="checkbox" checked> パスワードを表示</label>
+        <label><small>会場名（任意）</small><input id="wLabel" maxlength="40" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+        <p id="wConfirm" class="sub"></p>
+        <div class="row"><button type="submit" class="primary">保存して接続</button></div>
+      </form>
+      <h2>写真から取り込む（Wi-Fi QR）</h2>
+      <input id="qrFile" type="file" accept="image/*" capture="environment" aria-label="QR を撮影">
+      <h2>登録済み</h2>
+      <ul id="wifiSaved"></ul>
+      <h2>端末 AP</h2>
+      <p class="sub" id="apInfo"></p>
+      <button id="apRegen" class="warn">AP パスワードを再生成</button>
+    </section>
+
+    <section data-panel="spk" class="hidden">
+      <p class="sub">スピーカーをペアリングモードにしてからスキャン</p>
+      <button id="btScan">スキャン</button>
+      <ul id="btList"></ul>
+      <h2>記憶済み</h2>
+      <ul id="btKnown"></ul>
+    </section>
+
+    <section data-panel="src" class="hidden">
+      <label><small>音源</small><select id="adapterSel"></select></label>
+      <h2>認証登録</h2>
+      <p class="sub">ログイン済みブラウザのリクエストヘッダを貼り付け（端末内のみに保存）</p>
+      <ul id="authList"></ul>
+      <textarea id="authRaw" rows="5" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;font:inherit" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="認証ヘッダ"></textarea>
+      <div class="row"><button id="authSave" class="primary">登録</button><button id="authDel" class="warn">認証削除</button></div>
+      <h2>更新</h2>
+      <button id="updateNow">今すぐ更新</button>
+    </section>
+
+    <section data-panel="cfg" class="hidden">
+      <label class="chk"><input id="cGuest" type="checkbox"> ゲスト受付</label>
+      <label class="chk"><input id="cNext" type="checkbox"> ゲストの「この次に流す」を許可</label>
+      <label class="chk"><input id="cAuto" type="checkbox"> 電源 ON で前回のプレイリストを自動再生</label>
+      <label><small>1 人あたりのキュー上限</small><input id="cLimit" type="number" min="1" max="20"></label>
+      <div class="row"><button id="cSave" class="primary">保存</button></div>
+      <h2>初期化</h2>
+      <p class="sub">PIN・Wi-Fi・音源認証・スピーカーを消去します</p>
+      <button id="resetBtn" class="warn">初期化</button>
+      <p><button id="logout">ログアウト</button> <a href="#">ゲスト画面</a></p>
+    </section>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden" role="status"></div>
+<script src="/static/jsQR.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let csrf = null, statusCache = null;
+
+function el(tag, text, attrs) {
+  const e = document.createElement(tag);
+  if (text != null) e.textContent = text;
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  return e;
+}
+function btn(text, onClick, cls) { const b = el("button", text, { type: "button" }); if (cls) b.className = cls; b.onclick = onClick; return b; }
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.remove("hidden"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.add("hidden"), 3000); }
+function fmt(s) { if (s == null) return "--:--"; s = Math.floor(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+
+async function api(method, path, body) {
+  const headers = { "Content-Type": "application/json" };
+  if (csrf) headers["X-SoiKaxa-CSRF"] = csrf;
+  const r = await fetch(path, { method, headers, credentials: "same-origin", body: body ? JSON.stringify(body) : undefined });
+  let data = null; try { data = await r.json(); } catch (e) { /* 空応答 */ }
+  if (!r.ok) {
+    const d = data && data.detail;
+    const msg = (d && d.message) || (Array.isArray(d) ? "入力を確認してください" : "エラー (" + r.status + ")");
+    const err = new Error(msg); err.status = r.status; err.code = d && d.error; throw err;
+  }
+  return data;
+}
+
+// ---------- 状態 ----------
+async function refresh() {
+  try {
+    const s = await api("GET", "/api/status");
+    statusCache = s;
+    if (s.csrf) csrf = s.csrf;
+    $("nowTitle").textContent = s.now ? s.now.title : "待機中";
+    $("nowSub").textContent = s.now ? [s.now.artist, fmt(s.position) + " / " + fmt(s.duration), s.paused ? "一時停止" : ""].filter(Boolean).join("  ") : "";
+    $("notice").textContent = s.notice || "";
+    $("disc").classList.toggle("spin", !!s.now && !s.paused);
+    const up = $("upcoming"); up.replaceChildren();
+    if (!s.upcoming.length) up.append(el("li", "—"));
+    for (const u of s.upcoming) up.append(el("li", u.title + (u.added_by ? "（" + u.added_by + "）" : "")));
+    $("guestOpen").classList.toggle("hidden", !s.guest_enabled && !s.is_owner);
+    $("guestClosed").classList.toggle("hidden", s.guest_enabled || s.is_owner);
+    route();
+  } catch (e) { $("notice").textContent = "端末に接続できません"; }
+}
+
+// ---------- ゲスト ----------
+$("guestName").value = localStorage.getItem("sk_name") || "";
+$("guestName").onchange = () => localStorage.setItem("sk_name", $("guestName").value);
+
+function renderResults(results) {
+  const ul = $("results"); ul.replaceChildren();
+  if (!results.length) ul.append(el("li", "見つかりませんでした"));
+  for (const r of results) {
+    const li = el("li"); const info = el("div", null, { class: "grow" });
+    info.append(el("div", r.title), el("small", r.kind === "playlist" ? "プレイリスト" : (r.artist || "")));
+    li.append(info);
+    if (r.kind === "playlist") li.append(btn("開く", () => openPlaylist(r.id)));
+    else {
+      li.append(btn("追加", () => enqueue(r.id, false)));
+      if (statusCache && (statusCache.allow_play_next || statusCache.is_owner)) li.append(btn("次に流す", () => enqueue(r.id, true)));
+    }
+    ul.append(li);
+  }
+}
+$("searchForm").onsubmit = async (ev) => {
+  ev.preventDefault(); const q = $("q").value.trim(); if (!q) return;
+  try { renderResults((await api("GET", "/api/search?q=" + encodeURIComponent(q))).results); } catch (e) { toast(e.message); }
+};
+async function openPlaylist(id) {
+  try { renderResults((await api("GET", "/api/search/playlists/" + encodeURIComponent(id))).results); } catch (e) { toast(e.message); }
+}
+async function enqueue(id, next) {
+  try { await api("POST", "/api/queue", { track_id: id, name: $("guestName").value.trim(), play_next: next }); toast(next ? "次に流します" : "キューに追加しました"); refresh(); }
+  catch (e) { toast(e.message); }
+}
+
+// ---------- オーナー ----------
+function route() {
+  const owner = location.hash === "#owner";
+  $("guestView").classList.toggle("hidden", owner);
+  $("ownerView").classList.toggle("hidden", !owner);
+  if (!owner || !statusCache) return;
+  const logged = statusCache.is_owner;
+  $("pinBox").classList.toggle("hidden", logged);
+  $("ownerPanel").classList.toggle("hidden", !logged);
+  $("pinLabel").textContent = statusCache.has_pin ? "オーナー PIN（4〜8 桁）" : "最初にオーナー PIN を決めてください（4〜8 桁の数字）";
+  $("pinBtn").textContent = statusCache.has_pin ? "入る" : "設定";
+  if (logged && !route.loaded) { route.loaded = true; loadOwner(); }
+  if (!logged) route.loaded = false;
+}
+window.onhashchange = route;
+
+$("pinForm").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const path = statusCache && statusCache.has_pin ? "/api/owner/login" : "/api/owner/setup";
+  try { csrf = (await api("POST", path, { pin: $("pin").value })).csrf; $("pin").value = ""; await refresh(); }
+  catch (e) { toast(e.message || "PIN が違います"); }
+};
+
+document.querySelectorAll("[role=tab]").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("[role=tab]").forEach((x) => x.setAttribute("aria-selected", x === b));
+  document.querySelectorAll("[data-panel]").forEach((p) => p.classList.toggle("hidden", p.dataset.panel !== b.dataset.tab));
+  ({ play: loadPlay, wifi: loadWifi, spk: loadBt, src: loadSrc, cfg: loadCfg })[b.dataset.tab]();
+});
+
+function loadOwner() { loadPlay(); }
+async function guard(fn) { try { await fn(); } catch (e) { toast(e.message); if (e.status === 401) { csrf = null; refresh(); } } }
+
+function loadPlay() { guard(async () => {
+  $("vol").value = statusCache.volume; $("volVal").textContent = statusCache.volume;
+  const pl = await api("GET", "/api/owner/playlists"); const ul = $("playlists"); ul.replaceChildren();
+  if (!pl.playlists.length) ul.append(el("li", "プレイリストがありません（音源タブで認証・切替）"));
+  for (const p of pl.playlists) { const li = el("li"); li.append(el("div", p.title + (p.track_count != null ? "（" + p.track_count + "）" : ""), { class: "grow" }), btn("再生", () => guard(async () => { await api("POST", "/api/owner/play", { playlist_id: p.id }); refresh(); }))); ul.append(li); }
+  await loadQueue();
+}).catch(() => {}); }
+async function loadQueue() {
+  const q = await api("GET", "/api/owner/queue"); const ul = $("queue"); ul.replaceChildren();
+  if (!q.items.length) ul.append(el("li", "—"));
+  q.items.forEach((it, i) => { const li = el("li"); li.append(el("div", it.title + (it.added_by ? "（" + it.added_by + "）" : ""), { class: "grow" }));
+    if (i > 0) li.append(btn("↑", () => guard(async () => { await api("POST", "/api/owner/queue/" + it.item_id + "/move", { index: i - 1 }); loadQueue(); refresh(); })));
+    li.append(btn("削除", () => guard(async () => { await api("DELETE", "/api/owner/queue/" + it.item_id); loadQueue(); refresh(); }), "warn")); ul.append(li); });
+}
+document.querySelectorAll("[data-act]").forEach((b) => b.onclick = () => guard(async () => { await api("POST", "/api/owner/control", { action: b.dataset.act }); refresh(); }));
+$("vol").onchange = () => guard(async () => { await api("POST", "/api/owner/volume", { volume: +$("vol").value }); $("volVal").textContent = $("vol").value; });
+
+// Wi-Fi
+function showWifiForm(ssid, hidden, password) {
+  $("wifiForm").classList.remove("hidden"); $("wSsid").value = ssid || ""; $("wHidden").checked = !!hidden;
+  if (password != null) $("wPass").value = password; updateConfirm();
+}
+function updateConfirm() { const p = $("wPass").value; $("wConfirm").textContent = "SSID「" + $("wSsid").value + "」 パスワード " + p.length + " 文字"; }
+["wSsid", "wPass"].forEach((id) => $(id).oninput = updateConfirm);
+$("wShow").onchange = () => $("wPass").type = $("wShow").checked ? "text" : "password";
+$("wifiManualBtn").onclick = () => showWifiForm("", true);
+$("wifiScan").onclick = () => guard(async () => {
+  const ul = $("wifiList"); ul.replaceChildren(el("li", "スキャン中…"));
+  const r = await api("GET", "/api/owner/wifi/scan"); ul.replaceChildren();
+  for (const n of r.networks) { const li = el("li"); li.append(el("div", n.ssid + "  " + n.signal + "%" + (n.in_use ? " 接続中" : ""), { class: "grow" }), btn("選ぶ", () => showWifiForm(n.ssid, false))); ul.append(li); }
+});
+$("wifiForm").onsubmit = (ev) => { ev.preventDefault(); guard(async () => {
+  if (!confirm($("wConfirm").textContent + " で接続しますか？")) return;
+  toast("接続中…");
+  const r = await api("POST", "/api/owner/wifi", { ssid: $("wSsid").value, password: $("wPass").value, hidden: $("wHidden").checked, label: $("wLabel").value });
+  toast(r.message); if (r.ok) { $("wifiForm").classList.add("hidden"); loadWifi(); }
+}); };
+function parseWifiQr(text) {
+  if (!text || !text.startsWith("WIFI:")) return null;
+  const out = {}; let key = "", val = "", inKey = true;
+  const body = text.slice(5);
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c === "\\" && i + 1 < body.length) { (inKey ? (key += body[++i]) : (val += body[++i])); continue; }
+    if (inKey && c === ":") { inKey = false; continue; }
+    if (!inKey && c === ";") { out[key] = val; key = ""; val = ""; inKey = true; continue; }
+    inKey ? (key += c) : (val += c);
+  }
+  return { ssid: out.S || "", password: out.P || "", hidden: out.H === "true" };
+}
+$("qrFile").onchange = () => {
+  const f = $("qrFile").files[0]; if (!f) return;
+  if (typeof jsQR !== "function") { toast("QR 解読が使えません。手入力してください"); return; }
+  const img = new Image();
+  img.onload = () => {
+    const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement("canvas"); c.width = img.width * scale; c.height = img.height * scale;
+    const g = c.getContext("2d"); g.drawImage(img, 0, 0, c.width, c.height);
+    const res = jsQR(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+    const w = res && parseWifiQr(res.data);
+    if (w) { showWifiForm(w.ssid, w.hidden, w.password); toast("QR から読み取りました。確認して保存"); } else toast("Wi-Fi QR を読み取れませんでした");
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(f);
+};
+function loadWifi() { guard(async () => {
+  const r = await api("GET", "/api/owner/wifi"); const ul = $("wifiSaved"); ul.replaceChildren();
+  if (!r.saved.length) ul.append(el("li", "—"));
+  for (const n of r.saved) { const li = el("li"); li.append(el("div", n.label + (n.label !== n.ssid ? "（" + n.ssid + "）" : ""), { class: "grow" }), btn("削除", () => guard(async () => { await api("DELETE", "/api/owner/wifi/" + encodeURIComponent(n.ssid)); loadWifi(); }), "warn")); ul.append(li); }
+  const ap = await api("GET", "/api/owner/ap"); $("apInfo").textContent = "SSID " + ap.ssid + " / パスワード " + ap.password;
+}); }
+$("apRegen").onclick = () => guard(async () => { if (!confirm("ゲストは QR を読み直す必要があります。再生成しますか？")) return; await api("POST", "/api/owner/ap/regenerate"); loadWifi(); });
+
+// Bluetooth
+$("btScan").onclick = () => guard(async () => {
+  const ul = $("btList"); ul.replaceChildren(el("li", "スキャン中…（約 8 秒）"));
+  const r = await api("GET", "/api/owner/bt/scan"); ul.replaceChildren();
+  if (!r.devices.length) ul.append(el("li", "見つかりません"));
+  for (const d of r.devices) { const li = el("li"); li.append(el("div", d.name, { class: "grow" }), btn("接続", () => guard(async () => { toast("接続中…"); const x = await api("POST", "/api/owner/bt/connect", { mac: d.mac }); toast(x.ok ? (x.name || d.name) + " に接続しました" : x.message); loadBt(); }))); ul.append(li); }
+});
+function loadBt() { guard(async () => {
+  const r = await api("GET", "/api/owner/bt"); const ul = $("btKnown"); ul.replaceChildren();
+  if (!r.known.length) ul.append(el("li", "—"));
+  for (const k of r.known) { const li = el("li"); li.append(el("div", k.name + (k.connected ? "  接続中" : ""), { class: "grow" }), btn("接続", () => guard(async () => { const x = await api("POST", "/api/owner/bt/connect", { mac: k.mac }); toast(x.ok ? "接続しました" : x.message); loadBt(); }))); ul.append(li); }
+}); }
+
+// 音源
+function loadSrc() { guard(async () => {
+  const cfg = await api("GET", "/api/owner/settings"); const sel = $("adapterSel"); sel.replaceChildren();
+  for (const a of cfg.adapters) { const o = el("option", a, { value: a }); if (a === cfg.active_adapter) o.selected = true; sel.append(o); }
+  const r = await api("GET", "/api/owner/source/auth"); const ul = $("authList"); ul.replaceChildren();
+  if (!r.adapters.length) ul.append(el("li", "認証が必要な音源はありません"));
+  for (const a of r.adapters) ul.append(el("li", a.adapter + ": " + (a.registered ? "登録済み" : "未登録")));
+  $("authRaw").dataset.adapter = r.adapters.length ? r.adapters[0].adapter : "";
+}); }
+$("adapterSel").onchange = () => guard(async () => { await api("PATCH", "/api/owner/settings", { active_adapter: $("adapterSel").value }); toast("音源を切り替えました"); });
+$("authSave").onclick = () => guard(async () => { const a = $("authRaw").dataset.adapter; if (!a) return; await api("POST", "/api/owner/source/auth", { adapter: a, raw: $("authRaw").value }); $("authRaw").value = ""; toast("登録しました"); loadSrc(); });
+$("authDel").onclick = () => guard(async () => { const a = $("authRaw").dataset.adapter; if (!a || !confirm("認証を削除しますか？")) return; await api("DELETE", "/api/owner/source/auth", { adapter: a }); loadSrc(); });
+$("updateNow").onclick = () => guard(async () => { const r = await api("POST", "/api/owner/update"); toast(r.ok ? "更新を開始しました" : "更新を開始できません"); });
+
+// 設定
+function loadCfg() { guard(async () => {
+  const c = await api("GET", "/api/owner/settings");
+  $("cGuest").checked = c.guest_enabled; $("cNext").checked = c.allow_play_next; $("cAuto").checked = c.autoplay; $("cLimit").value = c.guest_queue_limit;
+}); }
+$("cSave").onclick = () => guard(async () => { await api("PATCH", "/api/owner/settings", { guest_enabled: $("cGuest").checked, allow_play_next: $("cNext").checked, autoplay: $("cAuto").checked, guest_queue_limit: +$("cLimit").value }); toast("保存しました"); refresh(); });
+$("resetBtn").onclick = () => guard(async () => { if (prompt("初期化するには RESET と入力") !== "RESET") return; await api("POST", "/api/owner/reset", { confirm: "RESET" }); csrf = null; toast("初期化しました"); refresh(); });
+$("logout").onclick = () => guard(async () => { await api("POST", "/api/owner/logout"); csrf = null; location.hash = ""; refresh(); });
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

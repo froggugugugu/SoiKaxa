@@ -1,0 +1,26 @@
+# SoiKaxa 再生デーモン。有効化: systemctl enable --now soikaxa@<ユーザー名>（root で実行）
+[Unit]
+Description=SoiKaxa player daemon
+After=network.target bluetooth.target NetworkManager.service
+Wants=bluetooth.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=%i
+Environment=PYTHONUNBUFFERED=1
+Environment=SOIKAXA_DATA_DIR=/var/lib/soikaxa
+Environment=SOIKAXA_UPDATE_UNIT=soikaxa-update@%i.service
+# PipeWire (ユーザーセッション) に届くように。UID 1000 以外なら変更する
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+StateDirectory=soikaxa
+StateDirectoryMode=0700
+# ポート 80 で待ち受ける（root にしない）
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ExecStart=/home/%i/soikaxa/.venv/bin/python -m soikaxa.daemon
+Restart=always
+RestartSec=2
+WatchdogSec=30
+
+[Install]
+WantedBy=multi-user.target

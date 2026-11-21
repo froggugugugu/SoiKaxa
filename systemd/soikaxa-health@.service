@@ -1,0 +1,11 @@
+# 既知の曲 1 つを resolve して音源の稼働を確認し、温度を記録する（PRD 13.1-3）
+[Unit]
+Description=SoiKaxa morning health check
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=%i
+Environment=SOIKAXA_DATA_DIR=/var/lib/soikaxa
+ExecStart=/home/%i/soikaxa/.venv/bin/python -m soikaxa.health
+SuccessExitStatus=0 1
