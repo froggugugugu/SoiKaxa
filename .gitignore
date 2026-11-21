@@ -5,3 +5,18 @@ testreport/
 .claude/worktrees/
 .claude/agent-memory-local/
 .claude/skills/*-workspace/
+
+# SoiKaxa
+.venv/
+__pycache__/
+*.pyc
+*.log
+.coverage
+.data/
+browser.json
+oauth.json
+*.pin
+config/secrets*
+case/*.stl
+!case/README.md
+.DS_Store
