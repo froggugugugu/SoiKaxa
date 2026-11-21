@@ -18,6 +18,9 @@
 - `PlayerService._advance()` は RLock 内でループし、resolve/play の失敗はスキップ。連続 `max_consecutive_failures` 回でフォールバック（`local`）へ切替
 - 先読みは次曲 1 曲だけ（アカウントのボット判定リスクを下げる）。期限 30 秒前を過ぎた先読み結果は捨てて再解決
 - 非同期処理は `run_async` を注入してテストでは同期実行する
+- 通知は由来ごとに別フィールド（`_notice` フォールバック > `net_notice` 上流 > `health_notice` ヘルスチェック）。片方の更新で他方を消さない
+- LCD は「曲が流れているか」（`status().now` / `is_playing`）で通常画面と回転を決める。状態機械の `PLAYING` には依存しない（上流なしのローカル再生などで `PLAYING` にならないため）
+- mpv の event は専用スレッドで配送する。受信スレッド上で購読者を呼ぶと、購読者が送ったコマンドの応答を読めずデッドロックする
 
 ## 3. コア / アダプタ境界
 
@@ -32,6 +35,8 @@
 - 入力欄は `autocorrect=off autocapitalize=off spellcheck=false`
 - オーナーの状態変更 API は `X-SoiKaxa-CSRF` 必須。CSRF なしのオーナー Cookie はゲスト扱い
 - ゲストが追加できるのは `SearchCache` にある ID だけ
+- PIN の初回登録は `SetupCode`（LCD にだけ表示）で本体の前にいることを確かめる。コードを API 応答やログ（実機）に出さない
+- アクセス制御は送信元アドレスで行う（`allowed_networks`）。Host ヘッダは偽装できるので使わない
 
 ## 5. UI 規約
 
@@ -64,4 +69,5 @@
 | ---- | ---- | ---- |
 | ruff format が `base.py` を整形し D-09（無変更）に反する | 一括整形 | `pyproject.toml` の `extend-exclude` に追加、`tests/test_deps.py` で原本一致を検査 |
 | Pillow 13 に RGB565 のパッカーがない | `tobytes("raw","BGR;16")` 非対応 | `ImageChops` によるチャンネル演算で変換（`lcd/fb.py`） |
+| 保存済み Wi-Fi の登録し直しに失敗すると元の設定まで消えた | 接続確認の前に既存プロファイルを削除していた | 仮の名前（`sknew-`）で作成 → 接続成功後に旧設定を消して改名 |
 | フック（PreToolUse）が `sudo` を含むコマンド文字列をブロック | ハーネスの安全ルール | `sudo` を含むスクリプトは Write ツールで作成 |

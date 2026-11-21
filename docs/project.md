@@ -14,6 +14,7 @@ uv run ruff check . && uv run ruff format --check .      # lint / format
 uv run mypy core/soikaxa adapters/soikaxa-adapter-ytmusic/soikaxa_adapter_ytmusic  # 型
 uv run python scripts/check_deps.py                      # 依存方向・命名チェック
 # 開発 PC でフェイク起動（mpv/nmcli/bluetoothctl なし）。http://127.0.0.1:8080/
+# PIN 初回登録に要る設定コードは、フェイク起動時だけログに出る（実機は LCD のみ）
 SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_MUSIC_DIR=$PWD/.data/music SOIKAXA_FAKE=1 \
   SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon
 # 実機（Pi）: 01_setup.sh → 02_verify.sh（フェーズ 1）→ 03_install.sh（root で実行）
@@ -43,7 +44,8 @@ SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_MUSIC_DIR=$PWD/.data/music SOIKAXA_FAKE=1 \
 | `SOIKAXA_STA_IF` / `SOIKAXA_AP_IF` | `wlan0` / STA と同じ | AP を USB ドングルに分ける場合に指定 |
 | `SOIKAXA_FB` | `/dev/fb1` | LCD フレームバッファ |
 | `SOIKAXA_FONT` | 自動探索 | LCD フォント |
-| `SOIKAXA_UPDATE_UNIT` | `soikaxa-update.service` | 「今すぐ更新」で起動するユニット |
+| `SOIKAXA_UPDATE_UNIT` | なし（`soikaxa@.service` が設定） | 「今すぐ更新」で起動するユニット。未設定なら更新は開始しない |
+| `SOIKAXA_ALLOWED_NETS` | `10.42.0.1/24,127.0.0.0/8,::1/128` | Web を受け付ける送信元。上流側から操作したい場合だけ追加する |
 
 ## ルーティング
 

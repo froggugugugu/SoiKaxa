@@ -153,7 +153,7 @@ L4 → L3 → L2、L3 → L1、L1 → L2（型のみ）。
 | --- | --- | --- |
 | `runner` | `CommandResult(returncode:int, stdout:str, stderr:str)`、`CommandRunner.run(args: Sequence[str], *, timeout: float = 10.0, input: str \| None = None) -> CommandResult`、`SubprocessRunner` | — |
 | `config` | `data_dir() -> Path`（`SOIKAXA_DATA_DIR` 既定 `/var/lib/soikaxa`）、`Settings`（dataclass）、`SettingsStore(path).load() / save(s) / update(**kw) -> Settings` | — |
-| `auth` | `hash_pin(pin) -> str`、`verify_pin(pin, stored) -> bool`、`validate_pin(pin)`（4〜8 桁数字）、`PinGuard(max_attempts=5, lockout_sec=300, clock)`、`SessionStore(ttl_sec=43200).create() -> (sid, csrf) / check(sid) / check_csrf(sid, token) / revoke(sid)` | — |
+| `auth` | `hash_pin(pin) -> str`、`verify_pin(pin, stored) -> bool`、`validate_pin(pin)`（6〜8 桁数字）、`PinGuard(max_attempts=5, lockout_sec=300, clock, max_lockout_sec=3600)`（ロックは 2 倍ずつ延長、`reset()` で解除）、`SetupCode`（PIN 未設定時の 6 桁コード）、`SessionStore(ttl_sec=14400).create() -> (sid, csrf) / check(sid) / check_csrf(sid, token) / revoke(sid)` | — |
 | `state` | `State`、`Event`、`StateMachine(on_change).dispatch(event) -> State` | — |
 | `queue` | `QueueItem`、`NowPlaying(track, origin: "queue"\|"playlist", item)`、`PlayQueue.set_playlist(id, tracks, start=0)`、`add(track, *, added_by, guest_id, play_next, limit) -> QueueItem`、`remove(item_id)`、`move(item_id, index)`、`pop_next() -> NowPlaying \| None`、`peek_next()`、`upcoming(n)`、`items()`、`clear()` | adapters.base |
 | `player` | `MpvTransport`（`send(cmd: list) -> dict`、`on_event(cb)`）、`UnixSocketTransport(path)`、`MpvPlayer(transport).play(resolved)`、`pause()`、`resume()`、`toggle()`、`stop()`、`set_volume(int)`、`position() -> float \| None`、`duration()`、`on_end(cb(reason: "eof"\|"error"\|"stop"))` | adapters.base |
@@ -273,11 +273,11 @@ class PlayerService:
 | `/static/{file}` | GET | P | jsQR.js 等 |
 | 接続検知パス（`/hotspot-detect.html`, `/library/test/success.html`, `/generate_204`, `/gen_204`, `/connecttest.txt`, `/ncsi.txt`, `/redirect`）・外部 Host | GET | P | `302 → http://10.42.0.1/` |
 | `/api/status` | GET | P | 状態・今の曲・次の曲。`sk_gid` 発行。オーナーセッション有無 `is_owner`、`has_pin` |
-| `/api/search?q=` | GET | G | `{results: [{kind, id, title, artist, duration_sec, track_count}]}`。q は 1〜100 文字 |
-| `/api/search/playlists/{id}` | GET | G | 検索キャッシュ内の公開プレイリストの曲一覧 |
+| `/api/search?q=` | GET | G | `{results: [{kind, id, title, artist, duration_sec, track_count}]}`。q は 1〜100 文字。送信元ごとに 30 回/分（429） |
+| `/api/search/playlists/{id}` | GET | G | 検索キャッシュ内の公開プレイリストの曲一覧（検索時点の音源で展開、最大 200 曲、回数制限は検索と共通） |
 | `/api/queue` | POST | G | `{track_id, name?(≤20), play_next?}` → `{item_id}`。429=上限、403=次に流す禁止/受付停止、404=キャッシュにない |
-| `/api/owner/setup` | POST | P（PIN 未設定時のみ） | `{pin}` → セッション発行 |
-| `/api/owner/login` | POST | P | `{pin}` → `{csrf}` + Cookie。423=ロック中 |
+| `/api/owner/setup` | POST | P（PIN 未設定時のみ） | `{pin, setup_code}` → セッション発行。`setup_code` は本体 LCD にだけ表示。403=コード違い、423=ロック中 |
+| `/api/owner/login` | POST | P | `{pin}` → `{csrf}` + Cookie。423=ロック中（照合前に判定）、429=同時照合の上限 |
 | `/api/owner/logout` | POST | O | セッション破棄 |
 | `/api/owner/playlists` | GET | O | オーナーのプレイリスト |
 | `/api/owner/play` | POST | O | `{playlist_id}` |
@@ -297,7 +297,7 @@ class PlayerService:
 | `/api/owner/bt/connect` | POST | O | `{mac}`（`XX:XX:XX:XX:XX:XX` 検証） |
 | `/api/owner/source/auth` | GET / POST / DELETE | O | `AuthCapable` のアダプタ一覧と登録有無 / `{adapter, raw}` / `{adapter}` |
 | `/api/owner/update` | POST | O | `systemctl start soikaxa-update.service` |
-| `/api/owner/reset` | POST | O | `{confirm: "RESET"}` → 設定・認証・記憶機器消去 |
+| `/api/owner/reset` | POST | O | `{confirm: "RESET"}` → 設定・認証・記憶機器（ペアリング含む）消去、AP パスワードと設定コードを再生成 |
 
 ---
 
@@ -348,7 +348,10 @@ class PlayerService:
 | 脅威 | 対策 |
 | --- | --- |
 | ゲストのオーナー API 到達 | `/api/owner/*` は依存関数 `require_owner` でセッション検証。ゲスト API のレスポンスは専用 schema で項目を限定 |
-| PIN 総当たり | `PinGuard`: 5 回失敗で 300 秒ロック（全体カウント。端末 AP 内の少人数前提）、`hmac.compare_digest`、scrypt（n=2^14, r=8, p=1, salt 16B） |
+| PIN 総当たり | PIN は 6〜8 桁。`PinGuard`: 5 回失敗でロック（300 秒から 2 倍ずつ、上限 1 時間。全体カウント）。ロック中は scrypt を計算しない。同時照合は 2 件まで。本体 10 秒長押しでロック解除（ゲストによる締め出しからの復旧）。`hmac.compare_digest`、scrypt（n=2^14, r=8, p=1, salt 16B） |
+| PIN 未設定時のオーナー先取り | 初回起動時と初期化後は `SetupCode`（6 桁）を本体 LCD にだけ表示し、`/api/owner/setup` で照合する。失敗は `PinGuard` で数える。初期化時は AP パスワードも再生成する。確認と保存は 1 つのロック内で行う |
+| 上流ネットワークの第三者 | 送信元アドレスが端末 AP のサブネット（`10.42.0.0/24`）とループバック以外なら 403（`SOIKAXA_ALLOWED_NETS`）。Host ヘッダは偽装できるためアクセス制御には使わない |
+| ゲストによる音源アカウントの消費 | 検索と公開プレイリスト展開は未認証クライアントで実行。検索は送信元ごとに回数制限、展開は最大 200 曲 |
 | CSRF | オーナーの状態変更は `X-SoiKaxa-CSRF` ヘッダ必須（セッションと紐づくトークン）。Cookie は `HttpOnly; SameSite=Strict; Path=/` |
 | XSS | HTML 生成は `textContent` のみ（`innerHTML` 禁止）。CSP: `default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'` |
 | 入力検証 | pydantic で長さ・範囲・正規表現（SSID ≤32 バイト、WPA パスワード 8〜63、MAC、PIN 4〜8 桁、検索 1〜100 文字、名前 ≤20 文字）。nmcli/bluetoothctl は引数配列で渡しシェルを経由しない。bluetoothctl に渡す値は検証済み MAC のみ |

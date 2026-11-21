@@ -12,7 +12,7 @@
 | 最終更新 | 2026-11-21（TEAM_PJM 自律モード） |
 | ブランチ | `feat/soikaxa-v1` |
 | 起動コマンド | `SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_FAKE=1 SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon` |
-| スモークテスト | `uv run pytest` → 期待: 188 passed |
+| スモークテスト | `uv run pytest` → 期待: 227 passed |
 | 既知の壊れている箇所 | なし（実機は未検証。下表の R 項目） |
 
 ---
@@ -51,13 +51,20 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 
 1. 【人間】一次 PRD フェーズ 0〜1: `scripts/01_setup.sh` → `scripts/02_verify.sh` → `docs/phase1-results.md` 記入
 2. ~~ライセンス決定~~ → MIT に決定、`LICENSE` 追加済み（2026-11-21）
-3. Pi で `scripts/03_install.sh` → `journalctl -u soikaxa@<user> -f` で起動確認。nmcli / bluetoothctl の実出力がパーサと合うか確認（落とし穴表）
+3. Pi で `scripts/03_install.sh`（起動しない場合は `soikaxa@.service` のサンドボックス節を外して切り分け） → `journalctl -u soikaxa@<user> -f` で起動確認。nmcli / bluetoothctl の実出力がパーサと合うか確認（落とし穴表）
 4. 実アカウントで ytmusic アダプタ（認証登録 → プレイリスト → 再生）
 5. フェーズ 5: overlayfs、Deno 導入、電源ブチ切り 20 回
 
 ---
 
 ## 4. セッションログ（新しいものを上に）
+
+### 2026-11-21 — review-sweep と指摘対応
+
+- **やったこと**: MIT ライセンス追加。`/review-sweep`（12 体）で MUST 2 / SHOULD 26 / CONSIDER 24。MUST 2 件と SHOULD の大半を修正（一覧は `output/reports/review/REVIEW_002_sweep-response.md`）
+- **検証**: `uv run pytest` → 227 passed（3 回連続）/ カバレッジ 99% / ruff 0 / mypy 0 / check_deps 0 / フェイク起動 HTTP スモーク 15/15 / LCD に設定コードが出ることを画像で確認
+- **未完了 / 申し送り**: 修正後の再レビューは未実施。systemd サンドボックスと AP/STA 同時動作は実機で確認
+- **判断**: PIN は 6〜8 桁に変更。PIN 初回登録は本体 LCD の設定コード必須。Web は端末 AP 側からのみ受け付け
 
 ### 2026-11-21 — TEAM_PJM 自律モード
 
