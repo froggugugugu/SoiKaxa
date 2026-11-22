@@ -18,6 +18,19 @@ def to_rgb565(img: Image.Image) -> bytes:
     return Image.merge("LA", (lo, hi)).tobytes()
 
 
+def find_lcd_fb(sys_root: str | Path = "/sys/class/graphics") -> str:
+    """480×320 のフレームバッファを探す。HDMI の有無で fb0/fb1 が入れ替わるため。無ければ /dev/fb1。"""
+    root = Path(sys_root)
+    for d in sorted(root.glob("fb[0-9]*")) if root.is_dir() else []:
+        try:
+            size = (d / "virtual_size").read_text().strip()
+        except OSError:
+            continue
+        if size == f"{WIDTH},{HEIGHT}":
+            return f"/dev/{d.name}"
+    return "/dev/fb1"
+
+
 class Framebuffer:
     def __init__(self, path: str | Path = "/dev/fb1", width: int = WIDTH, height: int = HEIGHT):
         self.path = Path(path)

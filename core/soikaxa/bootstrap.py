@@ -185,7 +185,7 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
     import uvicorn
 
     from .lcd.controller import CoverLoader, LcdController
-    from .lcd.fb import Framebuffer
+    from .lcd.fb import Framebuffer, find_lcd_fb
     from .touch import EvdevTouchSource, find_touch_device
     from .web.app import AppContext, create_app
 
@@ -205,7 +205,7 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
         return setup_code.current if rt.store.load().owner_pin_hash is None else None
 
     lcd = None
-    fb = Framebuffer(os.environ.get("SOIKAXA_FB", "/dev/fb1"))
+    fb = Framebuffer(os.environ.get("SOIKAXA_FB") or find_lcd_fb())
     if fb.available or rt.fake:
         if rt.fake and not fb.available:
             fb = Framebuffer(rt.data_dir / "fb.raw")

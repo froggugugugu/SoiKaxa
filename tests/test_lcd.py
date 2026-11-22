@@ -13,6 +13,24 @@ def test_rgb565_known_values():
     assert fb.to_rgb565(img).hex() == "00f8e0071f00ffff"
 
 
+def _fake_sysfs(root, sizes):
+    for name, size in sizes.items():
+        d = root / name
+        d.mkdir(parents=True)
+        (d / "virtual_size").write_text(size + "\n")
+
+
+def test_find_lcd_fb_picks_480x320(tmp_path):
+    _fake_sysfs(tmp_path, {"fb0": "480,320", "fb1": "1920,1080"})
+    assert fb.find_lcd_fb(tmp_path) == "/dev/fb0"
+
+
+def test_find_lcd_fb_falls_back_to_fb1(tmp_path):
+    _fake_sysfs(tmp_path, {"fb0": "1920,1080"})
+    assert fb.find_lcd_fb(tmp_path) == "/dev/fb1"
+    assert fb.find_lcd_fb(tmp_path / "missing") == "/dev/fb1"
+
+
 def test_framebuffer_full_and_region_writes(tmp_path):
     path = tmp_path / "fb"
     f = fb.Framebuffer(path, width=4, height=3)
