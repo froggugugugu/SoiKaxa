@@ -77,15 +77,41 @@ scripts/deploy.sh soi@soikaxa.local --music ~/Development/mp3/Test   # --music �
 
 Web 画面は端末 AP（`soikaxa-XXXX`）に参加したスマホからだけ開ける。自宅 Wi-Fi 側の PC から開くと 403 になる（仕様）。
 
-## 4. コードを直したとき
+## 4. 新しいバージョンに更新する
+
+スマホだけでできる。本体がインターネット（上流 Wi-Fi）につながっていること。
+
+1. オーナー画面 →「設定」→「ソフトウェア更新」の **新しいバージョンを確認**
+2. 「v0.2.0 があります」と変更点が出たら **アップグレード**
+3. 数分待つ（音楽はいったん止まる）。終わると PIN の入れ直しを求められるので入れ直し、「設定」で「完了: v0.2.0 に更新しました」を確かめる
+
+新しい版が起動しなかったときは、自動で元の版に戻して「元に戻しました: …」と出る。更新前のコードは Pi の `~/soikaxa.prev` に残る。
+記録は Pi の `/var/lib/soikaxa-upgrade/upgrade.json`、詳しいログは `journalctl -u soikaxa-upgrade@$USER -n 80 --no-pager`。
+
+### 新しいバージョンを配る（開発する人向け）
+
+GitHub の Releases に出したものだけが配られる（ブランチの途中のコードは届かない）。
+
+```bash
+# 1) core/pyproject.toml の version を上げてコミットし、main にマージする（タグと同じ番号にする）
+uv lock && git commit -am "chore: v0.2.0 をリリース"
+# 2) main でタグを打ってリリースを作る（push は確認してから）
+git switch main && git pull
+git tag v0.2.0 && git push origin v0.2.0
+gh release create v0.2.0 --generate-notes --title v0.2.0
+```
+
+リリースの説明文（`--generate-notes` の内容）がオーナー画面の「変更点」に出る。タグと `core/pyproject.toml` の version が違うと、本体は更新を中止する。
+
+## 5. 開発中のコードを直接送る
 
 ```bash
 scripts/deploy.sh soi@soikaxa.local --code-only   # 送信 → サービス再起動（数秒）
 ```
 
-依存パッケージやスクリプト・systemd の定義を変えたときは `--code-only` を付けずに実行する。
+依存パッケージやスクリプト・systemd の定義を変えたときは `--code-only` を付けずに実行する。リリース前の確認用で、普段の更新は 4 の画面から行う。
 
-## 5. 動作確認チェックリスト
+## 6. 動作確認チェックリスト
 
 | # | 確認 | 期待 |
 | --- | --- | --- |
@@ -101,7 +127,7 @@ scripts/deploy.sh soi@soikaxa.local --code-only   # 送信 → サービス再�
 | 10 | 電源を抜いて挿し直す | 自動で起動し、前回のプレイリストが流れる（音が出るまでの秒数を控える） |
 | 11 | `vcgencmd measure_temp` | 再生 10 分後に 70℃ 未満 |
 
-## 6. 結果を共有する
+## 7. 結果を共有する
 
 ```bash
 ssh soi@soikaxa.local 'bash ~/soikaxa/scripts/04_report.sh' > ~/Desktop/soikaxa-report.txt

@@ -358,8 +358,8 @@
       <div class="card tab"><span class="name">再生</span><ul><li>再生/停止・次の曲・音量</li><li>マイプレイリストから選んで再生</li><li>キューの並べ替え（↑）と削除</li></ul></div>
       <div class="card tab"><span class="name">Wi-Fi</span><ul><li>上流 Wi-Fi を一覧・手入力・写真から登録</li><li>登録済みの Wi-Fi の管理（優先順に自動接続）</li><li>本体 Wi-Fi（端末 AP）のパスワード再生成</li></ul></div>
       <div class="card tab"><span class="name">スピーカー</span><ul><li>スキャンして接続</li><li>記憶済みのスピーカーへ切り替え</li></ul></div>
-      <div class="card tab"><span class="name">音源</span><ul><li>音源サービスの認証を登録・削除</li><li>再生エンジンの「今すぐ更新」</li></ul></div>
-      <div class="card tab"><span class="name">設定</span><ul><li>ゲスト受付のオン/オフ、1 人あたりの上限</li><li>ゲストの「次に流す」を許可</li><li>電源 ON で自動再生</li><li>初期化（PIN・Wi-Fi・認証・スピーカーを消去）</li></ul></div>
+      <div class="card tab"><span class="name">音源</span><ul><li>音源サービスの認証を登録・削除</li><li>再生エンジン（曲を取得する部品）の「今すぐ更新」</li></ul></div>
+      <div class="card tab"><span class="name">設定</span><ul><li>ゲスト受付のオン/オフ、1 人あたりの上限</li><li>ゲストの「次に流す」を許可</li><li>電源 ON で自動再生</li><li>ソフトウェア更新（新しいバージョンの確認とアップグレード）</li><li>初期化（PIN・Wi-Fi・認証・スピーカーを消去）</li></ul></div>
     </div>
   </div>
 </section>
@@ -403,6 +403,7 @@
     <details><summary>PIN を忘れた・入力ロックがかかった</summary><div><p>ロックは本体を 10 秒長押しで解除できます。PIN を忘れたときは本体の設定を初期化する必要があります（手順は <a href="setup-raspberry-pi.md">setup-raspberry-pi.md</a> の「うまくいかないとき」）。</p></div></details>
     <details><summary>ゲストに曲を追加させたくない</summary><div><p>「設定」でゲスト受付をオフにすると、ゲスト画面は「ゲスト受付は停止中です。」になります。今の曲や次の曲は見えたままです。</p></div></details>
     <details><summary>自宅の PC からオーナー画面を開きたい</summary><div><p>開けません（仕様）。操作は本体の Wi-Fi に入ったスマホからだけ受け付け、近くにいない人が操作できないようにしています。</p></div></details>
+    <details><summary>SoiKaxa を新しいバージョンにしたい</summary><div><p>「設定」→「ソフトウェア更新」で <b>新しいバージョンを確認</b> → <b>アップグレード</b>。本体がインターネットにつながっている必要があります。数分で終わり、音楽はその間止まります。終わったら PIN を入れ直してください。新しい版がうまく動かなかったときは、自動で元の版に戻ります。</p></div></details>
     <details><summary>曲が途中で飛ばされる</summary><div><p>配信の曲が取得できないと自動で次へ進みます。3 曲続けて失敗すると、本体の MP3 に切り替えて音を止めません。本体は毎日自動で再生エンジンを更新しますが、急ぐときは「音源」→「今すぐ更新」。</p></div></details>
   </div>
 </section>

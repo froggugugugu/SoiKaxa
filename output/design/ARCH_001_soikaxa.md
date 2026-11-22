@@ -297,6 +297,9 @@ class PlayerService:
 | `/api/owner/bt/connect` | POST | O | `{mac}`（`XX:XX:XX:XX:XX:XX` 検証） |
 | `/api/owner/source/auth` | GET / POST / DELETE | O | `AuthCapable` のアダプタ一覧と登録有無 / `{adapter, raw}` / `{adapter}` |
 | `/api/owner/update` | POST | O | `systemctl start soikaxa-update.service` |
+| `/api/owner/upgrade` | GET | O | 現在のバージョンと更新の進み具合（`docs/data-model.md` の upgrade.json） |
+| `/api/owner/upgrade/check` | POST | O | GitHub Releases の最新版を確認（通信できなければ 502） |
+| `/api/owner/upgrade` | POST | O | 新しい版があれば `soikaxa-upgrade@<user>.service` を起動（実行中 409 / 最新 409） |
 | `/api/owner/reset` | POST | O | `{confirm: "RESET"}` → 設定・認証・記憶機器（ペアリング含む）消去、AP パスワードと設定コードを再生成 |
 
 ---

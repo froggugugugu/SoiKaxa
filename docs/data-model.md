@@ -34,6 +34,7 @@
 | ------ | ---- |
 | 音源認証（ytmusic） | `<data>/adapters/ytmusic/browser.json`（0600、ディレクトリ 0700） |
 | ヘルスチェック結果 | `<data>/health.json` |
+| ソフトウェア更新の進み具合 | `/var/lib/soikaxa-upgrade/upgrade.json`（root 所有。`scripts/upgrade.sh` が書く）と `<data>/upgrade-request.json`（デーモンが依頼時に `requested` を書く）。画面には `at` が新しい方を出す。項目は `state`（requested / running / done / failed / rolled_back）・`message`・`from`・`to`・`at`。requested / running が 30 分を超えたら failed とみなす |
 | ジャケットキャッシュ | `<data>/covers/` |
 
 ## フォームバリデーション

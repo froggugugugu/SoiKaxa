@@ -46,7 +46,7 @@ flowchart LR
 | プレゼンテーション | `web/`, `lcd/`, `touch.py` |
 | アプリケーション | `daemon.py`（`PlayerService`）, `bootstrap.py` |
 | ドメイン（I/O なし） | `queue.py`, `state.py`, `adapters/base.py` |
-| インフラ | `player.py`, `net.py`, `bt.py`, `portal.py`, `config.py`, `auth.py`, `health.py`, `watchdog.py`, `runner.py`, `adapters/local_mp3.py`, `adapters/registry.py` |
+| インフラ | `player.py`, `net.py`, `bt.py`, `portal.py`, `config.py`, `auth.py`, `health.py`, `upgrade.py`, `watchdog.py`, `runner.py`, `adapters/local_mp3.py`, `adapters/registry.py` |
 
 禁止依存は `scripts/check_deps.py` が検査（純粋層の I/O import、コアからのアダプタ import、web からの player/runner 直接 import、コアへの音源固有名の混入、README の命名）。
 
@@ -59,8 +59,8 @@ core/soikaxa/            # コアパッケージ（音源を知らない）
 ├── web/                 # FastAPI と static/（index.html, jsQR.js）
 └── *.py                 # runner/config/auth/state/queue/player/net/bt/portal/touch/health/watchdog/daemon/bootstrap/fakes
 adapters/soikaxa-adapter-ytmusic/  # 音源アダプタ（将来は別リポジトリ）
-scripts/                 # 01_setup / 02_verify / 03_install / 04_report / update_ytdlp / check_deps
-systemd/                 # soikaxa@, soikaxa-uap0（任意）, soikaxa-update@(.timer), soikaxa-health@(.timer), polkit
+scripts/                 # deploy（Mac→Pi）/ install（Pi で一括）/ upgrade（ソフトウェア更新）/ 01_setup / 02_verify / 03_install / 04_report / update_ytdlp / check_deps
+systemd/                 # soikaxa@, soikaxa-uap0, soikaxa-update@(.timer), soikaxa-upgrade@（root・手動起動）, soikaxa-health@(.timer), polkit
 tests/                   # コアのテスト
 ```
 
