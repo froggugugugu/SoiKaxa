@@ -96,5 +96,4 @@ hostnamectl set-hostname soikaxa || true
 sed -i 's/127.0.1.1.*/127.0.1.1\tsoikaxa/' /etc/hosts || true
 
 echo
-echo "完了。再起動してください: sudo reboot"
-echo "再起動後:  systemd-analyze && systemd-analyze blame | head -20  で起動時間を確認"
+echo "基本セットアップ完了（install.sh から呼ばれた場合は続きを実行します）"
