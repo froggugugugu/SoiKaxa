@@ -17,7 +17,9 @@ uv run python scripts/check_deps.py                      # 依存方向・命名
 # PIN 初回登録に要る設定コードは、フェイク起動時だけログに出る（実機は LCD のみ）
 SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_MUSIC_DIR=$PWD/.data/music SOIKAXA_FAKE=1 \
   SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon
-# 実機（Pi）の手順は docs/setup-raspberry-pi.md。状態の採取は scripts/04_report.sh
+# 実機へ送ってインストール（Mac から。Pi 側は scripts/install.sh）。2 回目以降は --code-only
+scripts/deploy.sh <user>@soikaxa.local [--music <MP3フォルダ>] [--code-only]
+# 実機の手順は docs/setup-raspberry-pi.md、使い方は docs/guide.html。状態の採取は scripts/04_report.sh
 ```
 
 ## 技術スタック
@@ -43,7 +45,7 @@ SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_MUSIC_DIR=$PWD/.data/music SOIKAXA_FAKE=1 \
 | `SOIKAXA_HTTP_HOST` / `SOIKAXA_HTTP_PORT` | `0.0.0.0` / `80` | Web 待ち受け |
 | `SOIKAXA_STA_IF` / `SOIKAXA_AP_IF` | `wlan0` / STA と同じ | AP を別インターフェース（`uap0` や USB ドングル）に分ける場合に指定 |
 | `SOIKAXA_AP_SAME_RADIO` | — | `1` = AP が STA と同じ無線チップ上の仮想 IF（`uap0`）。チャンネルを STA に合わせる |
-| `SOIKAXA_FB` | `/dev/fb1` | LCD フレームバッファ |
+| `SOIKAXA_FB` | 480×320 の fb を自動検出（無ければ `/dev/fb1`） | LCD フレームバッファ |
 | `SOIKAXA_FONT` | 自動探索 | LCD フォント |
 | `SOIKAXA_UPDATE_UNIT` | なし（`soikaxa@.service` が設定） | 「今すぐ更新」で起動するユニット。未設定なら更新は開始しない |
 | `SOIKAXA_ALLOWED_NETS` | `10.42.0.1/24,127.0.0.0/8,::1/128` | Web を受け付ける送信元。上流側から操作したい場合だけ追加する |

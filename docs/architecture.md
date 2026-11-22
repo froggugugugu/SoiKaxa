@@ -2,6 +2,39 @@
 
 詳細設計は `output/design/ARCH_001_soikaxa.md`。ここは現在のコード配置の索引。
 
+## 装置構成（ネットワーク・入出力）
+
+Pi の Wi-Fi チップ 1 つで、役割の違う 2 つの Wi-Fi を同時に使う。
+
+- **上流 Wi-Fi（STA、`wlan0`）**: Pi が「子機」として自宅 Wi-Fi やスマホのテザリングにつなぐ。インターネット（音源の検索・取得、yt-dlp の更新）に使う。複数登録でき、起動時に自動で選ぶ。無くてもローカル MP3 は再生できる
+- **端末 AP（`uap0`、SSID `soikaxa-XXXX`）**: Pi が「親機」になり、スマホを直接つなぐ。Web 画面（`http://10.42.0.1/`）はこちらからだけ開ける。常時 ON
+- 2 つは同じチップなので**同じチャンネルでしか同時に動かない**（AP が上流のチャンネルに合わせる）。上流が 5GHz の DFS チャンネル（52〜144）だと AP が立たないため、**上流は 2.4GHz に限る**（屋外利用も考慮。`WifiManager.add_and_connect` が `band bg` で登録する）
+
+```mermaid
+flowchart LR
+  NET((インターネット))
+  RT["上流 Wi-Fi<br/>自宅ルーター / 会場 / スマホのテザリング"]
+  subgraph PI["Raspberry Pi 4B（soikaxa デーモン）"]
+    WLAN["wlan0<br/>上流 Wi-Fi に接続（STA）"]
+    UAP["uap0<br/>端末 AP soikaxa-XXXX<br/>10.42.0.1 / キャプティブポータル"]
+    APP["Web 画面・再生・LCD 制御"]
+    WLAN --- APP
+    UAP --- APP
+  end
+  PHONE["スマホ<br/>オーナー / ゲスト"]
+  LCD["3.5 インチ SPI LCD<br/>曲名・ゲスト用 QR"]
+  TOUCH["タッチ操作"]
+  SPK["Bluetooth スピーカー"]
+  NET <--> RT
+  RT <-->|"Wi-Fi（同じチャンネル）"| WLAN
+  PHONE <-->|"Wi-Fi（QR で参加）"| UAP
+  APP -->|SPI| LCD
+  TOUCH -->|evdev| APP
+  APP -->|"Bluetooth A2DP"| SPK
+```
+
+有線 LAN（`eth0`）はセットアップ中の SSH 用で、製品としては使わない。
+
 ## エントリーポイント
 
 `python -m soikaxa.daemon` → `soikaxa.bootstrap.main()`。初期化順: 設定読込・AP 資格情報生成 → アダプタ読込 → mpv 起動 → `PlayerService` → LCD → AP 起動 → 上流確認 → スピーカー接続（別スレッド）→ 監視スレッド → タッチ → Web（uvicorn）。`READY=1` と `WATCHDOG=1` を systemd に通知。

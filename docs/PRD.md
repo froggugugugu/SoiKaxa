@@ -186,7 +186,7 @@ yt-dlp 経由の取得は YouTube 利用規約に抵触する可能性がある�
 | モジュール | 役割 | 技術 |
 | --- | --- | --- |
 | OS | 最小構成、読み取り専用ルート（overlayfs）、設定は別パーティション | Raspberry Pi OS Lite 64bit (Bookworm) |
-| ネットワーク | STA（上流）と AP（`soikaxa-XXXX`）の同時動作、複数 SSID 自動選択、ステルス SSID 対応 | NetworkManager（nmcli）、AP は STA と同一チャンネル |
+| ネットワーク | STA（上流）と AP（`soikaxa-XXXX`）の同時動作、複数 SSID 自動選択、ステルス SSID 対応 | NetworkManager（nmcli）、AP は STA と同一チャンネル。内蔵チップで AP を兼ねる場合、上流は 2.4GHz に限る（5GHz の DFS チャンネルでは AP を開始できない／屋外利用。2026-11-22 決定） |
 | キャプティブポータル | AP に入ったスマホに自動で Web 画面を開かせる（iOS/Android の接続検知 URL に応答） | dnsmasq + FastAPI のリダイレクト |
 | Web アプリ | ゲストビュー / オーナービュー（PIN）、Wi-Fi 登録、スピーカー、キュー、音量 | FastAPI + 単一 HTML（外部 CDN 不使用、ポータル簡易ブラウザで動く） |
 | ソースアダプタ | 4 関数 I/F | Python Protocol |

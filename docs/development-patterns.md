@@ -70,4 +70,6 @@
 | ruff format が `base.py` を整形し D-09（無変更）に反する | 一括整形 | `pyproject.toml` の `extend-exclude` に追加、`tests/test_deps.py` で原本一致を検査 |
 | Pillow 13 に RGB565 のパッカーがない | `tobytes("raw","BGR;16")` 非対応 | `ImageChops` によるチャンネル演算で変換（`lcd/fb.py`） |
 | 保存済み Wi-Fi の登録し直しに失敗すると元の設定まで消えた | 接続確認の前に既存プロファイルを削除していた | 仮の名前（`sknew-`）で作成 → 接続成功後に旧設定を消して改名 |
+| 実機で AP（`soikaxa-ap`）が作られず、ログにも何も出ない | polkit ルールが `50-` だったため、`49-polkit-pkla-compat.rules`（OS 付属の NetworkManager.pkla）に先に `settings.modify.system=no` を返された | ルールを `10-soikaxa.rules` にする。確認は `sudo systemd-run --uid=$USER --pipe --wait nmcli general permissions` |
+| 上流が 5GHz の DFS チャンネル（例 124）だと AP が立たない | 同じ無線チップの `uap0` は上流と同じチャンネル必須で、brcmfmac は DFS チャンネルで AP を開始できない（`AP-DISABLED`）。失敗時に上流も一度切れる | `same_radio` のとき `add_and_connect` が上流を `802-11-wireless.band bg` に固定（屋外利用も考慮）。SoiKaxa 以外が作った接続（Imager の `preconfigured`）は手順書 8.2 で手動固定 |
 | フック（PreToolUse）が `sudo` を含むコマンド文字列をブロック | ハーネスの安全ルール | `sudo` を含むスクリプトは Write ツールで作成 |
