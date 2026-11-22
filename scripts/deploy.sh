@@ -35,7 +35,7 @@ ssh -t "$PI" 'sudo bash ~/soikaxa/scripts/install.sh'
 
 if [[ -n "$MUSIC" ]]; then
   name="$(basename "$MUSIC")"
-  echo "== 曲を送る（プレイリスト「$name」） =="
+  echo "== 曲を送る（プレイリスト「${name}」） =="
   rsync -a --include '*/' --include '*.mp3' --include '*.MP3' --exclude '*' "${MUSIC%/}/" "$PI:/var/lib/soikaxa/music/$name/"
 fi
 
