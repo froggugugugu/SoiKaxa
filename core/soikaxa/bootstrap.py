@@ -187,6 +187,7 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
     from .lcd.controller import CoverLoader, LcdController
     from .lcd.fb import Framebuffer, find_lcd_fb
     from .touch import EvdevTouchSource, find_touch_device
+    from .upgrade import DEFAULT_REPO, Upgrader, github_latest
     from .web.app import AppContext, create_app
 
     logging.basicConfig(
@@ -234,6 +235,24 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
             return False
         return rt.runner.run(["systemctl", "start", "--no-block", unit]).ok
 
+    # ソフトウェア更新（GitHub Releases）。適用は root の soikaxa-upgrade@ ユニット（scripts/upgrade.sh）
+    upgrader = None
+    upgrade_unit = os.environ.get("SOIKAXA_UPGRADE_UNIT")  # soikaxa@.service が設定する
+    if upgrade_unit:
+        repo = os.environ.get("SOIKAXA_RELEASE_REPO", DEFAULT_REPO)
+        upgrader = Upgrader(
+            rt.data_dir,
+            start_unit=lambda: rt.runner.run(["systemctl", "start", "--no-block", upgrade_unit]).ok,
+            fetch_latest=lambda: github_latest(repo),
+        )
+    elif rt.fake:  # 画面確認用。適用は常に失敗する
+        upgrader = Upgrader(
+            rt.data_dir,
+            start_unit=lambda: False,
+            fetch_latest=lambda: {"tag_name": "v9.9.9", "body": "開発用のダミーのリリースです"},
+            status_dir=rt.data_dir,
+        )
+
     # 端末 AP の参加者と端末自身からだけ受け付ける（上流の会場 Wi-Fi 側からは 403）
     nets = os.environ.get("SOIKAXA_ALLOWED_NETS", f"{AP_IP}/24,127.0.0.0/8,::1/128")
     ctx = AppContext(
@@ -247,6 +266,7 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
             ipaddress.ip_network(n.strip(), strict=False) for n in nets.split(",") if n.strip()
         ),
         run_update=run_update,
+        upgrader=upgrader,
         on_ap_change=(lcd.invalidate if lcd else lambda: None),
         extra_hosts=frozenset({os.uname().nodename.lower(), f"{os.uname().nodename.lower()}.local"}),
     )

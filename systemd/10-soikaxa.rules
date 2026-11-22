@@ -1,5 +1,5 @@
 // polkit: SoiKaxa デーモンの実行ユーザー（soikaxa グループ）に
-// NetworkManager の操作と更新ユニットの起動だけを許可する。
+// NetworkManager の操作と更新ユニット（yt-dlp 更新・ソフトウェア更新）の起動だけを許可する。
 // 配置先: /etc/polkit-1/rules.d/10-soikaxa.rules
 // 番号は 49 より小さくする。polkit は /etc と /usr/share のルールをファイル名順に評価し、
 // 最初に結論を出したものを採る。Raspberry Pi OS の 49-polkit-pkla-compat.rules が
@@ -9,8 +9,10 @@ polkit.addRule(function(action, subject) {
   if (!subject.isInGroup("soikaxa")) return polkit.Result.NOT_HANDLED;
   if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0) return polkit.Result.YES;
   if (action.id === "org.freedesktop.systemd1.manage-units") {
+    // 自分のユーザー名のインスタンスだけ（soikaxa-upgrade@ は root で動くため、他人のものは起動させない）
     var unit = action.lookup("unit") || "";
-    if (/^soikaxa-update@[a-z_][a-z0-9_-]*\.service$/.test(unit) && action.lookup("verb") === "start") return polkit.Result.YES;
+    var mine = unit === "soikaxa-update@" + subject.user + ".service" || unit === "soikaxa-upgrade@" + subject.user + ".service";
+    if (mine && action.lookup("verb") === "start") return polkit.Result.YES;
   }
   return polkit.Result.NOT_HANDLED;
 });

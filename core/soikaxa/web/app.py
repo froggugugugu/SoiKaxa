@@ -32,6 +32,7 @@ from ..net import InvalidWifiInput, WifiManager, generate_ap_credentials, wifi_q
 from ..portal import PORTAL_URL, is_detection_request
 from ..queue import ItemNotFound, QueueLimitExceeded
 from ..state import Event
+from ..upgrade import UpgradeError, Upgrader, installed_version
 from . import schemas as s
 
 log = logging.getLogger(__name__)
@@ -111,6 +112,7 @@ class AppContext:
     pin_guard: PinGuard = field(default_factory=PinGuard)
     cache: SearchCache = field(default_factory=SearchCache)
     run_update: Callable[[], bool] = lambda: False
+    upgrader: Upgrader | None = None  # None = ソフトウェア更新に未対応（開発 PC など）
     on_ap_change: Callable[[], None] = lambda: None
     extra_hosts: frozenset[str] = frozenset()
     secure_cookies: bool = False  # 端末 AP は http のみ
@@ -577,6 +579,38 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.post("/api/owner/update", dependencies=owner)
     def update_now() -> dict[str, bool]:
         return {"ok": ctx.run_update()}
+
+    @app.get("/api/owner/upgrade", dependencies=owner)
+    def upgrade_status() -> dict[str, Any]:
+        up = ctx.upgrader
+        if up is None:
+            return {"supported": False, "current": installed_version(), "status": {"state": "idle"}}
+        return {"supported": True, "current": up.current, "status": up.status()}
+
+    def require_upgrader() -> Upgrader:
+        if ctx.upgrader is None:
+            raise _err(404, "not_supported", "この端末ではソフトウェア更新を使えません")
+        return ctx.upgrader
+
+    @app.post("/api/owner/upgrade/check", dependencies=owner)
+    def upgrade_check() -> dict[str, Any]:
+        try:
+            return require_upgrader().check()
+        except UpgradeError as e:
+            raise _err(502, "network", str(e)) from e
+
+    @app.post("/api/owner/upgrade", dependencies=owner)
+    def upgrade_start() -> dict[str, Any]:
+        up = require_upgrader()
+        if up.busy():
+            raise _err(409, "busy", "更新を実行中です")
+        try:
+            if not up.check()["available"]:
+                raise _err(409, "up_to_date", "すでに最新です")
+            ok = up.start()
+        except UpgradeError as e:
+            raise _err(502, "network", str(e)) from e
+        return {"ok": ok, "status": up.status()}
 
     @app.post("/api/owner/reset", dependencies=owner)
     def reset(body: s.ResetIn, response: Response) -> dict[str, bool]:

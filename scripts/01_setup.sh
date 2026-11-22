@@ -18,7 +18,7 @@ apt-get install -y --no-install-recommends \
   network-manager dnsmasq-base \
   python3 python3-venv python3-pip python3-pil python3-numpy \
   fonts-noto-cjk \
-  git curl jq
+  git curl jq rsync
 
 echo "== [2/6] Python venv (ytmusicapi, yt-dlp, FastAPI, qrcode) =="
 VENV="$HOME_DIR/soikaxa/.venv"

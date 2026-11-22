@@ -1,0 +1,13 @@
+# ソフトウェア更新（GitHub Releases の最新版を入れる）。オーナー画面の「アップグレード」で起動する。
+# root で動くので、スクリプトはホームではなく 03_install.sh が置く root 所有のコピーを使う
+[Unit]
+Description=SoiKaxa software upgrade for %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+# 進み具合の記録先（root 所有 0755。デーモンは読むだけ）
+StateDirectory=soikaxa-upgrade
+StateDirectoryMode=0755
+ExecStart=/usr/local/lib/soikaxa/upgrade.sh %i
+TimeoutStartSec=30min

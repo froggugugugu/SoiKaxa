@@ -11,6 +11,7 @@ User=%i
 Environment=PYTHONUNBUFFERED=1
 Environment=SOIKAXA_DATA_DIR=/var/lib/soikaxa
 Environment=SOIKAXA_UPDATE_UNIT=soikaxa-update@%i.service
+Environment=SOIKAXA_UPGRADE_UNIT=soikaxa-upgrade@%i.service
 # PipeWire (ユーザーセッション) に届くように。UID 1000 以外なら変更する
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 StateDirectory=soikaxa

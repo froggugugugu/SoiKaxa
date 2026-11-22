@@ -9,6 +9,7 @@ from soikaxa.fakes import FakeRunner, FakeTransport
 from soikaxa.net import WifiManager
 from soikaxa.player import MpvPlayer
 from soikaxa.runner import CommandResult
+from soikaxa.upgrade import UpgradeError, Upgrader
 from soikaxa.web.app import AppContext, SearchCache, create_app
 
 MAC = "AA:BB:CC:DD:EE:FF"
@@ -537,6 +538,55 @@ def test_owner_update_and_reset(env):
     assert runner.called("bluetoothctl", "remove") == []  # 記憶スピーカーなし
     assert runner.called("nmcli", "connection", "delete")
     assert client.get("/api/owner/playlists").status_code == 401
+
+
+def test_owner_upgrade_flow(env, tmp_path):
+    client, ctx, *_ = env
+    started = []
+    release = {"tag_name": "v0.2.0", "body": "新機能"}
+    ctx.upgrader = Upgrader(
+        tmp_path,
+        start_unit=lambda: started.append(1) or True,
+        fetch_latest=lambda: release,
+        current="0.1.0",
+        status_dir=tmp_path,
+    )
+    assert client.get("/api/owner/upgrade").status_code == 401  # オーナーのみ
+    h = login(client)
+    assert client.post("/api/owner/upgrade/check").status_code in (401, 403)  # CSRF なし
+    r = client.get("/api/owner/upgrade", headers=h).json()
+    assert r == {"supported": True, "current": "0.1.0", "status": {"state": "idle"}}
+    assert client.post("/api/owner/upgrade/check", headers=h).json()["available"] is True
+    r = client.post("/api/owner/upgrade", headers=h)
+    assert r.status_code == 200 and r.json()["ok"] is True and started == [1]
+    r = client.post("/api/owner/upgrade", headers=h)  # 実行中は二重に起動しない
+    assert r.status_code == 409 and r.json()["detail"]["error"] == "busy" and started == [1]
+
+
+def test_owner_upgrade_errors(env, tmp_path):
+    client, ctx, *_ = env
+    h = login(client)
+    # 開発 PC など更新ユニットが無い端末
+    assert client.get("/api/owner/upgrade", headers=h).json()["supported"] is False
+    assert client.post("/api/owner/upgrade/check", headers=h).status_code == 404
+
+    def offline():
+        raise UpgradeError("インターネットに接続できません")
+
+    ctx.upgrader = Upgrader(
+        tmp_path, start_unit=lambda: True, fetch_latest=offline, current="0.1.0", status_dir=tmp_path
+    )
+    r = client.post("/api/owner/upgrade/check", headers=h)
+    assert r.status_code == 502 and r.json()["detail"]["message"] == "インターネットに接続できません"
+    ctx.upgrader = Upgrader(
+        tmp_path,
+        start_unit=lambda: True,
+        fetch_latest=lambda: {"tag_name": "v0.1.0"},
+        current="0.1.0",
+        status_dir=tmp_path,
+    )
+    r = client.post("/api/owner/upgrade", headers=h)
+    assert r.status_code == 409 and r.json()["detail"]["error"] == "up_to_date"
 
 
 def test_search_cache_lru():

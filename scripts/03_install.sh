@@ -31,6 +31,11 @@ mkdir -p /etc/NetworkManager/dnsmasq-shared.d
 "$VENV/bin/python" -m soikaxa.portal > /etc/NetworkManager/dnsmasq-shared.d/soikaxa.conf
 
 echo "== [4/5] systemd =="
+# ソフトウェア更新は root で動くので、ホーム（ユーザーが書ける場所）ではなく root 所有のコピーを実行させる。
+# 実行中の自分自身を書き換えないよう、別名で置いてから rename する
+install -d -m 0755 /usr/local/lib/soikaxa
+install -m 0755 "$ROOT/scripts/upgrade.sh" /usr/local/lib/soikaxa/upgrade.sh.new
+mv -f /usr/local/lib/soikaxa/upgrade.sh.new /usr/local/lib/soikaxa/upgrade.sh
 install -m 0644 "$ROOT"/systemd/soikaxa*.service "$ROOT"/systemd/soikaxa*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable "soikaxa@$USER_NAME.service" "soikaxa-update@$USER_NAME.timer" "soikaxa-health@$USER_NAME.timer"
