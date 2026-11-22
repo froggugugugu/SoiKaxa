@@ -22,7 +22,9 @@ chmod +x "$ROOT/scripts/update_ytdlp.sh"
 echo "== [2/5] 権限（NetworkManager / 更新ユニット / 入力デバイス / fb） =="
 groupadd -f soikaxa
 usermod -aG soikaxa,video,input "$USER_NAME"
-install -m 0644 "$ROOT/systemd/50-soikaxa.rules" /etc/polkit-1/rules.d/50-soikaxa.rules
+# 49-polkit-pkla-compat.rules より先に評価させるため 10 番（理由はルールファイルの冒頭）
+rm -f /etc/polkit-1/rules.d/50-soikaxa.rules
+install -m 0644 "$ROOT/systemd/10-soikaxa.rules" /etc/polkit-1/rules.d/10-soikaxa.rules
 
 echo "== [3/5] キャプティブポータル DNS =="
 mkdir -p /etc/NetworkManager/dnsmasq-shared.d

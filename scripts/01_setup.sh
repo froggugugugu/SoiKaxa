@@ -52,6 +52,18 @@ if ! grep -q '^AutoEnable=true' /etc/bluetooth/main.conf 2>/dev/null; then
   sed -i 's/^#\?AutoEnable=.*/AutoEnable=true/' /etc/bluetooth/main.conf || true
   grep -q 'AutoEnable=true' /etc/bluetooth/main.conf || printf '\n[Policy]\nAutoEnable=true\n' >> /etc/bluetooth/main.conf
 fi
+# Classic（BR/EDR）専用にする。A2DP は Classic でしか流れない。LE にも対応した機器
+# （例: SOUNDPEATS Q30 HD+）が LE 側でペアリングされると、connect 直後に
+# br-connection-unknown で切れる（2026-11-22 実機で確認）
+BT_CONF=/etc/bluetooth/main.conf
+touch "$BT_CONF"
+if grep -Eq '^#?[[:space:]]*ControllerMode' "$BT_CONF"; then
+  sed -i -E 's/^#?[[:space:]]*ControllerMode[[:space:]]*=.*/ControllerMode = bredr/' "$BT_CONF"
+elif grep -q '^\[General\]' "$BT_CONF"; then
+  sed -i '/^\[General\]/a ControllerMode = bredr' "$BT_CONF"
+else
+  { printf '[General]\nControllerMode = bredr\n\n'; cat "$BT_CONF"; } > "$BT_CONF.tmp" && mv "$BT_CONF.tmp" "$BT_CONF"
+fi
 # 自動再接続を早める
 grep -q '^ReconnectAttempts' /etc/bluetooth/main.conf || printf 'ReconnectAttempts=7\nReconnectIntervals=1,2,4,8,16,32,64\n' >> /etc/bluetooth/main.conf
 usermod -aG bluetooth,audio,gpio,spi,i2c "$USER_NAME" || true

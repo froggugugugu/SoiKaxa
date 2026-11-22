@@ -162,6 +162,18 @@ def test_virtual_ap_interface_on_same_radio_follows_sta_channel():
     assert "802-11-wireless.channel" not in add2
 
 
+def test_upstream_locked_to_2ghz_on_same_radio():
+    """同じ無線チップでは上流を 2.4GHz に固定する（DFS チャンネルで AP が立たない・屋外利用）。"""
+    r = FakeRunner()
+    mgr(r, ap_if="uap0", same_radio=True).add_and_connect("Home", "password1")
+    add = r.called("nmcli", "connection", "add")[0]
+    assert add[add.index("802-11-wireless.band") + 1] == "bg"
+    # AP を別チップ（USB ドングル）に分けた場合は帯域を縛らない
+    r2 = FakeRunner()
+    mgr(r2, ap_if="wlan1").add_and_connect("Home", "password1")
+    assert "802-11-wireless.band" not in r2.called("nmcli", "connection", "add")[0]
+
+
 def test_sync_channel_skipped_for_separate_interfaces_or_no_sta():
     assert mgr(FakeRunner(), ap_if="wlan1").sync_ap_channel() is None
     assert mgr(FakeRunner()).sync_ap_channel() is None

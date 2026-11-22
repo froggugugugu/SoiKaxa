@@ -236,6 +236,10 @@ class WifiManager:
             "802-11-wireless.hidden",
             "yes" if hidden else "no",
         ]
+        if self.same_radio:
+            # AP と同じチャンネルでしか動かない。5GHz の DFS チャンネル（52〜144）では AP を
+            # 開始できず、W52/W53 は屋外利用の制限もあるため、上流は 2.4GHz に限る
+            args += ["802-11-wireless.band", "bg"]
         if password:
             args += ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password]
         added = self.r.run(args)
