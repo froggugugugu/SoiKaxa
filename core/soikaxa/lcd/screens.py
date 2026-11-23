@@ -13,6 +13,18 @@ from .theme import BG, CYAN, FG, HEIGHT, MAGENTA, MUTED, WIDTH, Font, font
 RECORD_XY = (20, (HEIGHT - DIAMETER) // 2)
 
 
+LIST_BOX = (0, 0, 230, HEIGHT)  # リスト表示で使う左側の領域（レコードの場所を含む）
+
+
+@dataclass(frozen=True)
+class QueueRow:
+    """リスト表示の 1 行。sub はゲストの追加者名（「＋ 名前」）かアーティスト。"""
+
+    title: str
+    sub: str = ""
+    highlight: bool = False  # いま追加された曲
+
+
 @dataclass(frozen=True)
 class NowPlayingView:
     title: str
@@ -25,6 +37,7 @@ class NowPlayingView:
     paused: bool = False
     notice: str = ""  # 例: 「音源側の変更で停止中」
     hint: str = ""  # 待機中だけ: ブラウザで開く URL（アーティスト行に出す）
+    queue_rows: tuple[QueueRow, ...] | None = None  # None ならレコード、あれば左側に次の曲のリスト
 
 
 def _canvas() -> tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -90,7 +103,10 @@ def render_setup(qr_payload: str, url: str, code: str | None = None) -> Image.Im
 
 def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) -> Image.Image:
     img, d = _canvas()
-    img.paste(disc or record_disc(None, view.title), RECORD_XY)
+    if view.queue_rows is None:
+        img.paste(disc or record_disc(None, view.title), RECORD_XY)
+    else:
+        _draw_queue(d, view.queue_rows)
     x, w = 240, WIDTH - 250
     d.text((x, 20), fit_text(view.title or "—", font(24), w), font=font(24), fill=FG)
     if view.hint:
@@ -119,6 +135,25 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
         d.text((x + 150, 230), "曲を追加", font=font(16), fill=CYAN)
         d.text((x + 150, 254), "QR を読む", font=font(14), fill=MUTED)
     return img
+
+
+def _draw_queue(d: ImageDraw.ImageDraw, rows: tuple[QueueRow, ...]) -> None:
+    """左側に次の曲を最大 5 曲。追加された曲はマゼンタの帯と文字で強調する。"""
+    x0, _, x1, _ = LIST_BOX
+    x, w, row_h = x0 + 14, x1 - x0 - 24, 54
+    d.text((x, 14), "次に流れる曲", font=font(16), fill=CYAN)
+    for i, row in enumerate(rows[:5]):
+        y = 44 + i * row_h
+        if row.highlight:
+            d.rectangle([x0 + 4, y - 4, x1 - 6, y + row_h - 10], outline=MAGENTA, width=2)
+        d.text(
+            (x, y),
+            fit_text(f"{i + 1}. {row.title}", font(18), w),
+            font=font(18),
+            fill=MAGENTA if row.highlight else FG,
+        )
+        sub_color = MAGENTA if row.sub.startswith("＋") else MUTED
+        d.text((x + 20, y + 24), fit_text(row.sub, font(14), w - 20), font=font(14), fill=sub_color)
 
 
 def render_error(message: str, qr_payload: str, code: str | None = None) -> Image.Image:

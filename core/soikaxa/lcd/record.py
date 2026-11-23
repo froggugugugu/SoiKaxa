@@ -1,4 +1,7 @@
-"""回転レコード（PRD 9.5）: 直径 200px、5° 刻み 72 フレームを曲切替時に事前生成する。"""
+"""回転レコード（PRD 9.5）: 直径 200px、5° 刻み 72 フレームを曲切替時に事前生成する。
+
+ジャケットを円のほぼ全面に出し、細い黒縁にマゼンタの弧を置いて回転を見せる。
+"""
 
 from __future__ import annotations
 
@@ -7,10 +10,11 @@ import hashlib
 from PIL import Image, ImageDraw
 
 from .fb import to_rgb565
-from .theme import BG, CYAN, GROOVE, MAGENTA, MUTED
+from .theme import BG, CYAN, MAGENTA, MUTED
 
 DIAMETER = 200
-COVER_DIAMETER = 104
+RIM = 10  # 黒縁の幅（片側）
+COVER_DIAMETER = DIAMETER - 2 * RIM
 STEP_DEG = 5
 FRAMES = 360 // STEP_DEG
 
@@ -47,17 +51,13 @@ def record_disc(cover: Image.Image | None, seed: str) -> Image.Image:
     """回転 0° の円盤（背景色で塗った正方形）。"""
     img = Image.new("RGB", (DIAMETER, DIAMETER), BG)
     d = ImageDraw.Draw(img)
-    d.ellipse([0, 0, DIAMETER - 1, DIAMETER - 1], fill=(0x10, 0x15, 0x1B), outline=CYAN, width=2)
-    for r in range(DIAMETER // 2 - 10, COVER_DIAMETER // 2 + 4, -7):  # 溝
-        c = DIAMETER // 2
-        d.ellipse([c - r, c - r, c + r, c + r], outline=GROOVE, width=1)
     c = DIAMETER // 2
-    r = DIAMETER // 2 - 16
-    d.arc([c - r, c - r, c + r, c + r], start=-60, end=-15, fill=MAGENTA, width=3)  # 回転が見える弧
+    d.ellipse([0, 0, DIAMETER - 1, DIAMETER - 1], fill=(0x10, 0x15, 0x1B), outline=CYAN, width=2)
     art = (cover or pattern_cover(seed)).convert("RGB").resize((COVER_DIAMETER, COVER_DIAMETER))
-    off = (DIAMETER - COVER_DIAMETER) // 2
-    img.paste(art, (off, off), _circle_mask(COVER_DIAMETER))
-    d.ellipse([c - 4, c - 4, c + 4, c + 4], fill=BG)  # センターホール
+    img.paste(art, (RIM, RIM), _circle_mask(COVER_DIAMETER))
+    r = c - RIM // 2  # 黒縁の中央
+    d.arc([c - r, c - r, c + r, c + r], start=-60, end=-15, fill=MAGENTA, width=3)  # 回転が見える弧
+    d.ellipse([c - 5, c - 5, c + 5, c + 5], fill=BG, outline=(0x10, 0x15, 0x1B), width=2)  # センターホール
     return img
 
 

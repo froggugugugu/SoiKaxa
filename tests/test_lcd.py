@@ -1,4 +1,5 @@
 import time
+from dataclasses import replace
 
 import pytest
 from PIL import Image
@@ -134,3 +135,33 @@ def test_setup_screens_show_code():
         lambda code: screens.render_error("エラー", qr, code),
     ):
         assert render("123456").tobytes() != render(None).tobytes()
+
+
+def test_record_cover_fills_disc_with_thin_rim():
+    """ジャケットは円のほぼ全面。黒縁は細く、回転が分かるマゼンタの弧は縁の中に置く。"""
+    disc = record.record_disc(Image.new("RGB", (50, 50), (255, 0, 0)), "s")
+    c = record.DIAMETER // 2
+    assert disc.getpixel((c + record.COVER_DIAMETER // 2 - 4, c)) == (255, 0, 0)  # 外寄りまでジャケット
+    assert record.DIAMETER - record.COVER_DIAMETER <= 24  # 縁は片側 12px 以下
+    rim = {
+        disc.getpixel((c + x, c - y))
+        for x in range(c)
+        for y in range(c)
+        if (x * x + y * y) ** 0.5 > record.COVER_DIAMETER / 2 + 1 and (x * x + y * y) ** 0.5 < c - 2
+    }
+    assert theme.MAGENTA in rim
+
+
+def test_now_playing_with_queue_rows_replaces_record():
+    rows = (
+        screens.QueueRow("追加された曲", "＋ Aさん", highlight=True),
+        screens.QueueRow("プレイリストの曲", "歌手"),
+    )
+    base = screens.NowPlayingView(title="曲")
+    with_list = screens.render_now_playing(replace(base, queue_rows=rows))
+    with_disc = screens.render_now_playing(base)
+    assert with_list.size == (480, 320)
+    left = (0, 0, 230, 320)
+    assert with_list.crop(left).tobytes() != with_disc.crop(left).tobytes()
+    colors = {c for _, c in with_list.crop(left).getcolors(100000)}
+    assert theme.MAGENTA in colors  # 追加された曲を強調

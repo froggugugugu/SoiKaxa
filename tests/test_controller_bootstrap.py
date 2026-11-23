@@ -9,7 +9,14 @@ from soikaxa.config import SettingsStore, Speaker
 from soikaxa.daemon import PlayerService, TrackView
 from soikaxa.fakes import FakeTransport
 from soikaxa.lcd import screens
-from soikaxa.lcd.controller import MSG_NO_SPEAKER, CoverLoader, LcdController
+from soikaxa.lcd.controller import (
+    LIST_ADDED_SEC,
+    LIST_CYCLE_DISC_SEC,
+    LIST_CYCLE_LIST_SEC,
+    MSG_NO_SPEAKER,
+    CoverLoader,
+    LcdController,
+)
 from soikaxa.lcd.fb import Framebuffer
 from soikaxa.player import MpvPlayer
 from soikaxa.runner import CommandResult
@@ -384,3 +391,53 @@ def test_idle_screen_shows_access_url(lcd):
     assert c.compose()[1].tobytes() != without
     svc.select_playlist("p")
     assert c.view()[1].hint == ""  # 再生中はアーティスト名を出す
+
+
+def _playing(lcd):
+    c, svc, fb, jobs, clock, tr = lcd
+    svc.dispatch(Event.NET_UP)
+    svc.select_playlist("p")
+    return c, svc, fb, jobs, clock
+
+
+def test_left_area_cycles_record_and_list(lcd):
+    """レコード 20 秒 → リスト 8 秒を繰り返す。"""
+    c, svc, fb, jobs, clock = _playing(lcd)
+    assert c.view()[1].queue_rows is None
+    clock.t += LIST_CYCLE_DISC_SEC + 1
+    rows = c.view()[1].queue_rows
+    assert rows and rows[0].title == "B" and not any(r.highlight for r in rows)
+    clock.t += LIST_CYCLE_LIST_SEC
+    assert c.view()[1].queue_rows is None
+
+
+def test_guest_add_shows_list_with_highlight_then_returns(lcd):
+    c, svc, fb, jobs, clock = _playing(lcd)
+    c.view()
+    svc.enqueue(Track(id="g", title="ゲストの曲", source="local"), added_by="Aさん")
+    rows = c.view()[1].queue_rows
+    assert rows[0].title == "ゲストの曲" and rows[0].highlight and "Aさん" in rows[0].sub
+    clock.t += LIST_ADDED_SEC - 1
+    assert c.view()[1].queue_rows is not None
+    clock.t += 2
+    assert c.view()[1].queue_rows is None  # 追加表示のあとはレコードから数え直す
+
+
+def test_record_is_not_drawn_over_list(lcd):
+    c, svc, fb, jobs, clock = _playing(lcd)
+    c.tick()
+    jobs.pop()()
+    c.tick()
+    svc.enqueue(Track(id="g", title="ゲストの曲", source="local"), added_by="Aさん")
+    c.tick()  # 全面描画（リスト）
+    before = fb.path.read_bytes()
+    for _ in range(5):
+        c.tick()
+    assert fb.path.read_bytes() == before
+
+
+def test_no_list_without_upcoming(lcd):
+    c, svc, fb, jobs, clock, _ = lcd
+    svc.dispatch(Event.NET_UP)
+    clock.t += LIST_CYCLE_DISC_SEC + 1
+    assert c.view()[1].queue_rows is None

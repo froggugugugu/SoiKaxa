@@ -20,6 +20,7 @@ from .record import DIAMETER, RecordFrames, record_disc
 from .screens import (
     RECORD_XY,
     NowPlayingView,
+    QueueRow,
     render_boot,
     render_error,
     render_now_playing,
@@ -30,6 +31,10 @@ from .screens import (
 log = logging.getLogger(__name__)
 
 SETUP_FULL_SEC = 30.0
+# 左側の表示切替: レコード → 次の曲のリスト を繰り返す。曲が追加されたらリストを一定時間出す
+LIST_CYCLE_DISC_SEC = 20.0
+LIST_CYCLE_LIST_SEC = 8.0
+LIST_ADDED_SEC = 10.0
 FPS = 8
 MSG_NO_SPEAKER = "スピーカーが見つかりません"
 
@@ -92,6 +97,12 @@ class LcdController:
         self._frames_for: str | None = None
         self._disc: Image.Image | None = None
         self._last_screen: str = ""
+        self._showing_list = False
+        self._last_list = False  # 直前の全面描画が左側リストだったか（レコードを上書きしない）
+        self._cycle_start = clock()
+        self._added_until = 0.0
+        self._highlight: str | None = None
+        self._seen_items: set[str] | None = None
         self._stop = threading.Event()
         service.on_change(self.invalidate)
 
@@ -128,6 +139,7 @@ class LcdController:
         elif not notice and st.state in (State.ONLINE, State.BT_CONNECTING):
             notice = MSG_NO_SPEAKER
         nxt = st.upcoming[0] if st.upcoming else None
+        rows = self._queue_rows(st.upcoming) if st.now else None
         return "now", NowPlayingView(
             title=st.now.title if st.now else "待機中",
             artist=st.now.artist if st.now else "",
@@ -140,6 +152,33 @@ class LcdController:
             notice=notice,
             # 待機中は PC からもたどり着けるよう、AP の IP でオーナー画面の URL を出す
             hint="" if st.now else self.portal_url + "#owner",
+            queue_rows=rows,
+        )
+
+    def _queue_rows(self, upcoming: list[TrackView]) -> tuple[QueueRow, ...] | None:
+        """左側をリストにするなら行を、レコードにするなら None を返す。"""
+        now = self.clock()
+        items = {u.item_id for u in upcoming if u.item_id}
+        if self._seen_items is not None and (new := items - self._seen_items):
+            self._highlight = next(u.item_id for u in reversed(upcoming) if u.item_id in new)
+            self._added_until = now + LIST_ADDED_SEC
+            self._cycle_start = self._added_until  # 追加表示のあとはレコードから数え直す
+        self._seen_items = items
+        if not upcoming:
+            return None
+        added = now < self._added_until
+        if not added:
+            self._highlight = None
+            period = LIST_CYCLE_DISC_SEC + LIST_CYCLE_LIST_SEC
+            if (now - self._cycle_start) % period < LIST_CYCLE_DISC_SEC:
+                return None
+        return tuple(
+            QueueRow(
+                u.title or "—",
+                f"＋ {u.added_by}" if u.added_by else u.artist,
+                highlight=added and bool(u.item_id) and u.item_id == self._highlight,
+            )
+            for u in upcoming[:5]
         )
 
     def compose(self) -> tuple[str, Image.Image]:
@@ -156,6 +195,7 @@ class LcdController:
             message = self.error_message or self.svc.status().notice or "エラー"
             return name, render_error(message, qr, code)
         assert now_view is not None
+        self._showing_list = now_view.queue_rows is not None
         self._ensure_frames(self.svc.status().now)
         return name, render_now_playing(now_view, self._disc)
 
@@ -184,7 +224,8 @@ class LcdController:
         name, img = self.compose()
         data = to_rgb565(img)
         frames = self._frames
-        if name == "now" and frames:
+        self._last_list = now_list = name == "now" and self._showing_list
+        if name == "now" and frames and not now_list:
             # 全面を描き直すときも、レコードは今の回転角のまま出す（0° に戻すと毎秒カクつく）
             data = _splice(data, frames.shown, RECORD_XY, DIAMETER, self.fb.width)
         self.fb.write_raw(data, (0, 0), img.size)
@@ -203,7 +244,7 @@ class LcdController:
             self._dirty.clear()
             self.render_once()
             return
-        if self._last_screen == "now" and self.svc.is_playing and self._frames:
+        if self._last_screen == "now" and not self._last_list and self.svc.is_playing and self._frames:
             self.fb.write_raw(self._frames.next(), RECORD_XY, (DIAMETER, DIAMETER))
 
     def start(self) -> None:  # pragma: no cover - スレッドループ

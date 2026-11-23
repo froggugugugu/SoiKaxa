@@ -44,12 +44,14 @@ class TrackView:
     added_by: str = ""
     origin: str = "playlist"
     thumbnail: str | None = None
+    item_id: str = ""  # キュー経由の曲だけ。LCD が「新しく追加された曲」を見分けるのに使う
 
     @classmethod
     def of(cls, np: NowPlaying) -> TrackView:
         t = np.track
         thumb = t.extra.get("thumbnail") if isinstance(t.extra, dict) else None
-        return cls(t.id, t.title, t.artist, t.duration_sec, np.added_by, np.origin, thumb)
+        item_id = np.item.item_id if np.item else ""
+        return cls(t.id, t.title, t.artist, t.duration_sec, np.added_by, np.origin, thumb, item_id)
 
 
 @dataclass(frozen=True)
