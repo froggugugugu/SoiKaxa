@@ -43,6 +43,7 @@ class NowPlaying:
 @dataclass
 class PlayQueue:
     clock: Callable[[], float] = time.time
+    repeat: Callable[[], bool] = field(default=lambda: False)  # True ならプレイリストの最後の次は先頭
     playlist_id: str | None = None
     _tracks: list[Track] = field(default_factory=list)
     _cursor: int = 0
@@ -107,10 +108,16 @@ class PlayQueue:
             self._items.clear()
 
     # ---- 再生順 ----
+    def _wrap(self) -> None:
+        """リピート中にプレイリストを使い切ったら先頭に戻す（ロック内で呼ぶ）。"""
+        if self._tracks and self._cursor >= len(self._tracks) and self.repeat():
+            self._cursor = 0
+
     def peek_next(self) -> NowPlaying | None:
         with self._lock:
             if self._items:
                 return NowPlaying(self._items[0].track, "queue", self._items[0])
+            self._wrap()
             if self._cursor < len(self._tracks):
                 return NowPlaying(self._tracks[self._cursor], "playlist")
             return None
@@ -120,6 +127,7 @@ class PlayQueue:
             if self._items:
                 it = self._items.pop(0)
                 return NowPlaying(it.track, "queue", it)
+            self._wrap()
             if self._cursor < len(self._tracks):
                 t = self._tracks[self._cursor]
                 self._cursor += 1
@@ -131,5 +139,8 @@ class PlayQueue:
             out = [NowPlaying(i.track, "queue", i) for i in self._items[:n]]
             rest = n - len(out)
             if rest > 0:
-                out += [NowPlaying(t, "playlist") for t in self._tracks[self._cursor : self._cursor + rest]]
+                ahead = self._tracks[self._cursor :]
+                if self.repeat():
+                    ahead += self._tracks[: self._cursor]  # 先頭に戻って 1 周分まで
+                out += [NowPlaying(t, "playlist") for t in ahead[:rest]]
             return out

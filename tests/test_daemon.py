@@ -72,6 +72,7 @@ def test_requires_fallback(tmp_path):
 
 def test_continuous_playback_and_end_goes_idle(tmp_path):
     svc, tr = make(tmp_path, FakeAdapter("remote", {"p": ["a", "b"]}))
+    svc.store.update(repeat=False)
     for e in (Event.NET_UP, Event.BT_CONNECTED):
         svc.dispatch(e)
     svc.select_playlist("p")
@@ -84,12 +85,26 @@ def test_continuous_playback_and_end_goes_idle(tmp_path):
     assert svc.store.load().last_playlist == LastPlaylist("remote", "p")
 
 
+def test_repeat_is_on_by_default_and_loops_playlist(tmp_path):
+    svc, tr = make(tmp_path, FakeAdapter("remote", {"p": ["a", "b"]}))
+    assert svc.store.load().repeat
+    svc.select_playlist("p")
+    tr.finish()
+    assert [u.id for u in svc.status().upcoming] == ["a", "b"]  # 最後の曲の次は先頭（1 周分）
+    tr.finish()
+    assert loaded(tr)[-1] == "remote://a" and svc.status().now.id == "a"
+    svc.store.update(repeat=False)  # 再生中に切り替えても次の判定から効く
+    tr.finish()
+    tr.finish()
+    assert svc.status().now is None
+
+
 def test_queue_has_priority_over_playlist(tmp_path):
     svc, tr = make(tmp_path, FakeAdapter("remote", {"p": ["a", "b"]}))
     svc.select_playlist("p")
     svc.enqueue(Track(id="g", title="G", source="remote"), added_by="Aさん", guest_id="x")
     st = svc.status()
-    assert [u.id for u in st.upcoming] == ["g", "b"] and st.upcoming[0].added_by == "Aさん"
+    assert [u.id for u in st.upcoming] == ["g", "b", "a"] and st.upcoming[0].added_by == "Aさん"
     svc.next()
     assert loaded(tr)[-1] == "remote://g"
     assert svc.status().now.added_by == "Aさん" and svc.status().now.origin == "queue"

@@ -19,6 +19,7 @@
 | `active_adapter` | str | 存在しなければ `local` として扱う |
 | `last_playlist` | {adapter, id} \| null | 自動再生用 |
 | `autoplay` | bool | 既定 true |
+| `repeat` | bool | 既定 true。プレイリストの最後の曲のあと先頭に戻る（キューの曲は流れたら消える） |
 | `volume` | int | 0〜100 に丸める |
 | `guest_enabled` / `allow_play_next` | bool | 既定 true |
 | `guest_queue_limit` | int | 1〜20 に丸める。既定 3 |

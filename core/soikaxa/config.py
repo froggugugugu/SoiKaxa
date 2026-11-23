@@ -62,6 +62,7 @@ class Settings:
     active_adapter: str = "local"
     last_playlist: LastPlaylist | None = None
     autoplay: bool = True
+    repeat: bool = True  # プレイリストの最後の曲のあと先頭に戻る
     volume: int = 60
     guest_enabled: bool = True
     allow_play_next: bool = True

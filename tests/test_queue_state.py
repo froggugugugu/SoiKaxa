@@ -19,6 +19,21 @@ def test_playlist_order_and_exhaustion():
     assert q.pop_next() is None and q.peek_next() is None
 
 
+def test_repeat_wraps_playlist_and_upcoming():
+    q = PlayQueue(repeat=lambda: True)
+    q.set_playlist("p", [t("a"), t("b"), t("c")])
+    assert [q.pop_next().track.id for _ in range(4)] == ["a", "b", "c", "a"]
+    assert q.peek_next().track.id == "b"
+    q.add(t("x"))
+    # 次の曲リストも先頭に戻って続く。同じ曲は 1 周分まで
+    assert [n.track.id for n in q.upcoming(5)] == ["x", "b", "c", "a"]
+
+
+def test_repeat_with_empty_playlist():
+    q = PlayQueue(repeat=lambda: True)
+    assert q.pop_next() is None and q.upcoming(5) == []
+
+
 def test_queue_has_priority_and_play_next_goes_first():
     q = PlayQueue(clock=lambda: 5.0)
     q.set_playlist("p", [t("a"), t("b")])

@@ -93,7 +93,7 @@ class PlayerService:
         self.max_failures = max_consecutive_failures
         self.clock = clock
         self.run_async = run_async
-        self.queue = PlayQueue(clock=clock)
+        self.queue = PlayQueue(clock=clock, repeat=lambda: self.store.load().repeat)
         self.sm = StateMachine(on_change=lambda *_: self._notify())
         self._lock = threading.RLock()
         self._listeners: list[Callable[[], None]] = []

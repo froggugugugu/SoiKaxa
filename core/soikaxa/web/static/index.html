@@ -171,6 +171,7 @@
       <label class="chk"><input id="cGuest" type="checkbox"> ゲスト受付</label>
       <label class="chk"><input id="cNext" type="checkbox"> ゲストの「この次に流す」を許可</label>
       <label class="chk"><input id="cAuto" type="checkbox"> 電源 ON で前回のプレイリストを自動再生</label>
+      <label class="chk"><input id="cRepeat" type="checkbox"> プレイリストをくり返し再生（最後の曲のあと最初に戻る）</label>
       <label><small>1 人あたりのキュー上限</small><input id="cLimit" type="number" min="1" max="20"></label>
       <div class="row"><button id="cSave" class="primary">保存</button></div>
       <h2>ソフトウェア更新</h2>
@@ -457,7 +458,7 @@ $("updateNow").onclick = () => guard(async () => { const r = await api("POST", "
 // 設定
 function loadCfg() { guard(async () => {
   const c = await api("GET", "/api/owner/settings");
-  $("cGuest").checked = c.guest_enabled; $("cNext").checked = c.allow_play_next; $("cAuto").checked = c.autoplay; $("cLimit").value = c.guest_queue_limit;
+  $("cGuest").checked = c.guest_enabled; $("cNext").checked = c.allow_play_next; $("cAuto").checked = c.autoplay; $("cRepeat").checked = c.repeat; $("cLimit").value = c.guest_queue_limit;
   showUpgrade(await api("GET", "/api/owner/upgrade"));
 }); }
 
@@ -505,7 +506,7 @@ $("upGo").onclick = () => guard(async () => {
   if (!r.ok) toast((r.status && r.status.message) || "更新を開始できません");
   showUpgrade(await api("GET", "/api/owner/upgrade"));
 });
-$("cSave").onclick = () => guard(async () => { await api("PATCH", "/api/owner/settings", { guest_enabled: $("cGuest").checked, allow_play_next: $("cNext").checked, autoplay: $("cAuto").checked, guest_queue_limit: +$("cLimit").value }); toast("保存しました"); refresh(); });
+$("cSave").onclick = () => guard(async () => { await api("PATCH", "/api/owner/settings", { guest_enabled: $("cGuest").checked, allow_play_next: $("cNext").checked, autoplay: $("cAuto").checked, repeat: $("cRepeat").checked, guest_queue_limit: +$("cLimit").value }); toast("保存しました"); refresh(); });
 $("resetBtn").onclick = () => guard(async () => { if (prompt("初期化するには RESET と入力") !== "RESET") return; await api("POST", "/api/owner/reset", { confirm: "RESET" }); csrf = null; toast("初期化しました"); refresh(); });
 $("logout").onclick = () => guard(async () => { await api("POST", "/api/owner/logout"); csrf = null; location.hash = ""; refresh(); });
 

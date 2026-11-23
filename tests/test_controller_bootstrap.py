@@ -325,10 +325,10 @@ def test_speaker_loss_is_detected_while_playing_and_reconnected(rt):
 
 def test_autoplay_only_when_speaker_becomes_connected(rt):
     _music(rt, n=1)
-    rt.store.update(known_speakers=[Speaker("AA:BB:CC:DD:EE:FF", "Fake")])
+    rt.store.update(known_speakers=[Speaker("AA:BB:CC:DD:EE:FF", "Fake")], repeat=False)
     rt.service.dispatch(Event.NET_UP)
     rt.service.select_playlist("Mix", "local")
-    rt.service.next()  # 1 曲だけなので再生終了
+    rt.service.next()  # 1 曲だけ・リピートなしなので再生終了
     assert rt.service.status().now is None
     assert bootstrap.connect_speaker(rt) and rt.service.status().now is not None  # 接続時に自動再生
     rt.service.next()

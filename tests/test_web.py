@@ -418,6 +418,9 @@ def test_owner_settings(env):
     assert client.patch("/api/owner/settings", json={"guest_queue_limit": 0}, headers=h).status_code == 422
     assert client.patch("/api/owner/settings", json={"active_adapter": "gone"}, headers=h).status_code == 502
     assert client.get("/api/owner/settings").json()["guest_queue_limit"] == 5
+    assert client.get("/api/owner/settings").json()["repeat"] is True  # 既定はオン
+    assert client.patch("/api/owner/settings", json={"repeat": False}, headers=h).json()["repeat"] is False
+    assert ctx.service.store.load().repeat is False
 
 
 def test_owner_wifi_flow(env):

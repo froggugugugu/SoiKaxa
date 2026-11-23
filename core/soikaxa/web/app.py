@@ -446,6 +446,7 @@ def create_app(ctx: AppContext) -> FastAPI:
             "allow_play_next": st.allow_play_next,
             "guest_queue_limit": st.guest_queue_limit,
             "autoplay": st.autoplay,
+            "repeat": st.repeat,
             "active_adapter": svc.active_name,
             "adapters": sorted(svc.adapters),
             "probe_track_id": st.probe_track_id,

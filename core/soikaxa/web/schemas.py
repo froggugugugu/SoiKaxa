@@ -45,6 +45,7 @@ class SettingsPatch(BaseModel):
     allow_play_next: bool | None = None
     guest_queue_limit: int | None = Field(default=None, ge=1, le=20)
     autoplay: bool | None = None
+    repeat: bool | None = None
     active_adapter: str | None = Field(default=None, max_length=64)
     probe_track_id: str | None = Field(default=None, max_length=512)
 
