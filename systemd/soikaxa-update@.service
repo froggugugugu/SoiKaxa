@@ -1,0 +1,9 @@
+# yt-dlp を nightly へ更新。失敗時は前版に戻す（PRD 13.1）
+[Unit]
+Description=SoiKaxa yt-dlp update
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=%i
+ExecStart=/home/%i/soikaxa/scripts/update_ytdlp.sh /home/%i/soikaxa/.venv

@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SoiKaxa 使い方ガイド</title>
+<meta name="description" content="SoiKaxa（ソイカシャ）の使い方。QR を読むだけで、みんなの曲がひとつのスピーカーから流れる。">
+<style>
+  :root {
+    --bg: #0B0F14; --bg2: #111821; --card: #141c26; --line: #1f2a36;
+    --cyan: #5DCAA5; --magenta: #ED93B1; --text: #C9D1D9; --muted: #7D8590;
+    --radius: 14px;
+    --mono: "JetBrains Mono", "Noto Sans Mono CJK JP", ui-monospace, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.75 var(--sans); }
+  a { color: var(--cyan); }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+  h1, h2, h3 { color: #fff; line-height: 1.35; margin: 0 0 .5em; }
+  h2 { font-size: 1.6rem; }
+  h3 { font-size: 1.1rem; }
+  p { margin: 0 0 1em; }
+  small, .muted { color: var(--muted); }
+  code, kbd { font-family: var(--mono); font-size: .9em; background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; padding: .05em .4em; }
+  kbd { color: var(--cyan); }
+  section { padding: 64px 0; border-top: 1px solid var(--line); }
+  .eyebrow { font: 600 .78rem/1 var(--mono); letter-spacing: .18em; color: var(--cyan); text-transform: uppercase; margin-bottom: 12px; }
+
+  /* ナビ */
+  nav { position: sticky; top: 0; z-index: 10; background: rgba(11,15,20,.88); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 52px; }
+  .menu { display: flex; gap: 18px; list-style: none; margin: 0; padding: 0; }
+  .menu a { color: var(--muted); text-decoration: none; font-size: .9rem; white-space: nowrap; }
+  .menu a:hover, .menu a:focus { color: var(--text); }
+  .menu-btn { display: none; width: 44px; height: 44px; margin-right: -10px; border: 0; background: none; color: var(--text); cursor: pointer; border-radius: 10px; }
+  .menu-btn:focus-visible { outline: 2px solid var(--cyan); }
+  .menu-btn svg { width: 24px; height: 24px; display: block; margin: auto; }
+  .menu-btn .x { display: none; }
+  nav.open .menu-btn .bars { display: none; }
+  nav.open .menu-btn .x { display: block; }
+  section { scroll-margin-top: 52px; }
+  .logo { font: 700 1.05rem/1 var(--mono); color: #fff; letter-spacing: .06em; margin-right: 6px; }
+  .logo b { color: var(--cyan); }
+
+  /* ヒーロー */
+  .hero { padding: 72px 20px 56px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; }
+  .hero h1 { font-size: clamp(1.7rem, 4.4vw, 2.8rem); letter-spacing: .01em; }
+  .hero h1 em { font-style: normal; color: var(--cyan); }
+  .nw { white-space: nowrap; }
+  .hero .lead { font-size: 1.1rem; color: var(--text); }
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+  .pill { border: 1px solid var(--line); background: var(--bg2); border-radius: 999px; padding: 4px 12px; font-size: .85rem; color: var(--muted); }
+  .pill b { color: var(--text); font-weight: 600; }
+
+  /* LCD モック */
+  .device { background: #050709; border: 1px solid #2a3542; border-radius: 18px; padding: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 0 6px #10161d; }
+  .device svg { display: block; width: 100%; height: auto; border-radius: 6px; }
+  .spin { transform-origin: 100px 160px; animation: spin 9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } html { scroll-behavior: auto; } }
+
+  /* カード・グリッド */
+  .grid { display: grid; gap: 16px; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .card h3 { display: flex; align-items: center; gap: 10px; }
+  .role { font: 600 .72rem/1 var(--mono); letter-spacing: .12em; padding: 5px 8px; border-radius: 6px; }
+  .role.c { color: var(--bg); background: var(--cyan); }
+  .role.m { color: var(--bg); background: var(--magenta); }
+  .role.g { color: var(--text); background: #263241; }
+
+  /* ステップ */
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: grid; gap: 14px; }
+  ol.steps > li { counter-increment: s; position: relative; padding: 18px 20px 18px 68px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 18px; top: 18px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font: 700 1rem/1 var(--mono); color: var(--bg); background: var(--cyan); }
+  ol.steps.m > li::before { background: var(--magenta); }
+  ol.steps h3 { margin-bottom: .3em; }
+  ol.steps p:last-child { margin-bottom: 0; }
+
+  /* タッチ操作 */
+  .gest { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .gest .card { text-align: center; }
+  .gest svg { width: 84px; height: 84px; margin: 4px auto 10px; display: block; }
+  .gest .dur { font: 700 1.6rem/1.2 var(--mono); color: #fff; }
+  .gest .dur small { font-size: .9rem; }
+  .gest .what { color: var(--cyan); font-weight: 700; font-size: 1.05rem; }
+
+  /* 画面の見かた */
+  .anatomy { display: grid; grid-template-columns: 1.2fr 1fr; gap: 28px; align-items: center; }
+  .legend { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+  .legend li { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; }
+  .legend .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 700 .85rem/1 var(--mono); color: var(--bg); background: var(--magenta); }
+
+  /* タブ説明 */
+  .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .tab .name { font: 700 .95rem/1 var(--mono); color: var(--cyan); border: 1px solid var(--cyan); border-radius: 8px; padding: 6px 10px; display: inline-block; margin-bottom: 12px; }
+  .tab ul { margin: 0; padding-left: 1.1em; }
+  .tab li { margin-bottom: .25em; }
+
+  /* 表・注意 */
+  table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .85rem; }
+  .note { border-left: 3px solid var(--magenta); background: rgba(237,147,177,.07); padding: 14px 18px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+  .note.c { border-color: var(--cyan); background: rgba(93,202,165,.07); }
+
+  /* FAQ */
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 0 18px; margin-bottom: 10px; }
+  summary { cursor: pointer; padding: 16px 0; font-weight: 600; color: #fff; list-style: none; position: relative; padding-right: 28px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; position: absolute; right: 0; top: 12px; font: 400 1.4rem/1 var(--mono); color: var(--cyan); }
+  details[open] summary::after { content: "−"; }
+  details > div { padding-bottom: 16px; }
+
+  footer { padding: 40px 0 64px; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+
+  @media (max-width: 760px) {
+    .hero, .anatomy { grid-template-columns: 1fr; }
+    .g3, .g2, .gest { grid-template-columns: 1fr; }
+    .hero { padding-top: 40px; }
+    .nw { white-space: normal; }
+    section { padding: 48px 0; }
+    .menu-btn { display: block; }
+    .menu { display: none; position: absolute; top: 52px; left: 0; right: 0; flex-direction: column; gap: 0;
+            padding: 8px 20px 16px; background: var(--bg); border-bottom: 1px solid var(--line);
+            box-shadow: 0 16px 32px rgba(0,0,0,.45); }
+    nav.open .menu { display: flex; }
+    .menu a { display: block; padding: 13px 4px; font-size: 1rem; color: var(--text); border-bottom: 1px solid var(--line); }
+    .menu li:last-child a { border-bottom: 0; }
+  }
+  @media print {
+    nav { display: none; }
+    body { background: #fff; color: #222; }
+    h1, h2, h3 { color: #000; }
+    .card, details, ol.steps > li { background: #fff; border-color: #ccc; }
+    details > div { display: block; }
+  }
+</style>
+</head>
+<body>
+
+<nav aria-label="目次">
+  <div class="wrap">
+    <a class="logo" href="#top" style="text-decoration:none">SOI<b>KAXA</b></a>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="menu" aria-label="目次を開く">
+      <svg class="bars" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <svg class="x" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <ul class="menu" id="menu">
+      <li><a href="#roles">しくみ</a></li>
+      <li><a href="#guest">ゲスト</a></li>
+      <li><a href="#start">はじめて</a></li>
+      <li><a href="#touch">タッチ操作</a></li>
+      <li><a href="#screen">画面</a></li>
+      <li><a href="#owner">オーナー</a></li>
+      <li><a href="#venue">会場で</a></li>
+      <li><a href="#source">音源</a></li>
+      <li><a href="#faq">困ったとき</a></li>
+    </ul>
+  </div>
+</nav>
+<script>
+  // スマホ幅の目次: ボタンで開閉、項目を選ぶ・外を押す・Esc で閉じる
+  (function () {
+    var nav = document.querySelector("nav"), btn = nav.querySelector(".menu-btn");
+    function set(open) {
+      nav.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", String(open));
+      btn.setAttribute("aria-label", open ? "目次を閉じる" : "目次を開く");
+    }
+    btn.addEventListener("click", function () { set(!nav.classList.contains("open")); });
+    nav.querySelectorAll(".menu a").forEach(function (a) { a.addEventListener("click", function () { set(false); }); });
+    document.addEventListener("click", function (e) { if (!nav.contains(e.target)) set(false); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") { set(false); btn.focus(); } });
+  })();
+</script>
+
+<header class="wrap hero" id="top">
+  <div>
+    <div class="eyebrow">SoiKaxa / ソイカシャ</div>
+    <h1>QR を読むだけで、<br><span class="nw"><em>みんなの曲</em>が流れる。</span></h1>
+    <p class="lead">SoiKaxa は、Bluetooth スピーカーにつなぐ小さな音楽プレーヤー。アプリもアカウントもいりません。本体の QR をスマホで読めば、その場の誰でも次の曲をリクエストできます。</p>
+    <div class="pills">
+      <span class="pill"><b>アプリ不要</b> スマホのカメラだけ</span>
+      <span class="pill"><b>電源を挿すだけ</b> 前回の続きから</span>
+      <span class="pill"><b>ゲストは安全</b> ネットに出ない</span>
+    </div>
+  </div>
+
+  <div class="device" aria-label="本体の画面の例">
+    <svg viewBox="0 0 480 320" role="img" aria-labelledby="lcdT">
+      <title id="lcdT">再生中の画面。左で回るレコード、右に曲名・次の曲・ゲスト用 QR</title>
+      <rect width="480" height="320" fill="#0B0F14"/>
+      <g class="spin">
+        <circle cx="100" cy="160" r="100" fill="#06090d" stroke="#5DCAA5" stroke-width="1.5"/>
+        <circle cx="100" cy="160" r="88" fill="none" stroke="#1b2733"/>
+        <circle cx="100" cy="160" r="78" fill="none" stroke="#1b2733"/>
+        <circle cx="100" cy="160" r="68" fill="none" stroke="#1b2733"/>
+        <circle cx="100" cy="160" r="52" fill="#1a2a33"/>
+        <path d="M60 160 L100 120 L140 160 L100 200 Z" fill="#5DCAA5" opacity=".55"/>
+        <circle cx="100" cy="160" r="22" fill="#ED93B1" opacity=".55"/>
+        <circle cx="100" cy="160" r="4" fill="#0B0F14"/>
+        <path d="M100 66 A94 94 0 0 1 182 113" fill="none" stroke="#ED93B1" stroke-width="3" stroke-linecap="round"/>
+      </g>
+      <text x="222" y="44" fill="#7D8590" font-size="12" font-family="monospace">NOW PLAYING</text>
+      <text x="222" y="72" fill="#ffffff" font-size="20" font-weight="700" font-family="sans-serif">夜明けのシグナル</text>
+      <text x="222" y="96" fill="#C9D1D9" font-size="14" font-family="sans-serif">Neon Harbor</text>
+      <rect x="222" y="110" width="236" height="4" rx="2" fill="#1f2a36"/>
+      <rect x="222" y="110" width="98" height="4" rx="2" fill="#5DCAA5"/>
+      <text x="222" y="146" fill="#ED93B1" font-size="13" font-family="sans-serif">次: 雨のあとで（ゆき）</text>
+      <rect x="222" y="172" width="116" height="116" rx="6" fill="#ffffff"/>
+      <g fill="#0B0F14">
+        <rect x="232" y="182" width="28" height="28"/><rect x="238" y="188" width="16" height="16" fill="#fff"/><rect x="242" y="192" width="8" height="8"/>
+        <rect x="300" y="182" width="28" height="28"/><rect x="306" y="188" width="16" height="16" fill="#fff"/><rect x="310" y="192" width="8" height="8"/>
+        <rect x="232" y="250" width="28" height="28"/><rect x="238" y="256" width="16" height="16" fill="#fff"/><rect x="242" y="260" width="8" height="8"/>
+        <rect x="270" y="184" width="6" height="6"/><rect x="282" y="190" width="6" height="6"/><rect x="270" y="220" width="6" height="6"/>
+        <rect x="288" y="226" width="6" height="6"/><rect x="306" y="222" width="6" height="6"/><rect x="318" y="238" width="6" height="6"/>
+        <rect x="276" y="250" width="6" height="6"/><rect x="300" y="262" width="6" height="6"/><rect x="314" y="270" width="6" height="6"/>
+        <rect x="288" y="244" width="6" height="6"/><rect x="246" y="226" width="6" height="6"/><rect x="258" y="232" width="6" height="6"/>
+      </g>
+      <text x="352" y="200" fill="#C9D1D9" font-size="13" font-family="sans-serif">曲をリクエスト</text>
+      <text x="352" y="220" fill="#7D8590" font-size="11" font-family="sans-serif">カメラで読んで</text>
+      <text x="352" y="236" fill="#7D8590" font-size="11" font-family="sans-serif">Wi-Fi に参加</text>
+    </svg>
+  </div>
+</header>
+
+<main>
+
+<section id="roles">
+  <div class="wrap">
+    <div class="eyebrow">How it works</div>
+    <h2>登場するのは 3 つだけ</h2>
+    <p>インターネットへは本体だけがつながり、スマホは本体の Wi-Fi に直接入ります。だからゲストのスマホに何もインストールせず、外部のサービスも使いません。</p>
+    <div class="grid g3">
+      <div class="card">
+        <h3><span class="role g">BOX</span>本体</h3>
+        <p>曲を探して再生し、Bluetooth スピーカーに送ります。画面には今の曲・次の曲・参加用の QR。上流の Wi-Fi（自宅・会場・テザリング）とスマホ用の Wi-Fi を同時に出します。</p>
+      </div>
+      <div class="card">
+        <h3><span class="role c">OWNER</span>オーナー</h3>
+        <p>持ち主。PIN で入り、プレイリスト・音量・スピーカー・Wi-Fi を決めます。キューの並べ替えやゲスト受付の停止もここから。</p>
+      </div>
+      <div class="card">
+        <h3><span class="role m">GUEST</span>ゲスト</h3>
+        <p>その場にいる人。QR を読んで曲を検索し（音楽アプリの共有リンクを貼っても OK）、キューに追加します。1 人 3 曲まで（オーナーが変更可）。間違えて追加した曲は、同じ画面の「あなたが追加した曲」から取り消せます（画面を閉じたあとはオーナーに頼む）。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="guest">
+  <div class="wrap">
+    <div class="eyebrow">For guests · 30 秒</div>
+    <h2>ゲスト: 曲をリクエストする</h2>
+    <ol class="steps m">
+      <li><h3>本体の QR をカメラで読む</h3><p>「ネットワーク “soikaxa-XXXX” に接続」をタップ。パスワードの入力はいりません。</p></li>
+      <li><h3>開いた画面で曲を探す</h3><p>画面は自動で開きます（開かなければブラウザで <code>http://10.42.0.1/</code>）。名前を入れておくと、本体の「次:」に表示されます。</p></li>
+      <li><h3>「追加」か「次に流す」</h3><p><b>追加</b>はキューの最後に、<b>次に流す</b>は今の曲のすぐ後に入ります（「次に流す」はオーナーが許可しているときだけ）。</p></li>
+    </ol>
+    <div class="note c">ゲストのスマホはこの間インターネットにつながりません。終わったら Wi-Fi を元に戻してください。一度入ったスマホは、次からは QR なしで参加できます。</div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <div class="eyebrow">For owners · はじめの 1 回</div>
+    <h2>オーナー: はじめての設定</h2>
+    <p>本体を組み立ててソフトを入れる手順は <a href="https://github.com/froggugugugu/SoiKaxa/blob/main/docs/setup-raspberry-pi.md">setup-raspberry-pi.md</a>。入れ終わって電源を入れたら、ここからはスマホだけで進みます。</p>
+    <ol class="steps">
+      <li><h3>QR を読んで本体の Wi-Fi に入る</h3><p>初回の本体には、Wi-Fi の QR と <b>6 桁の設定コード</b>が出ています。</p></li>
+      <li><h3>「オーナーはこちら」で PIN を決める</h3><p>① 実機の画面に表示されている <b>6 桁の数字</b>（設定コード）と、② 新しい <b>PIN（6〜8 桁の数字。自分で決める）</b>を入れて「設定」。設定コードは本体の前にいる人だけが知っている合言葉で、他人が先に持ち主になるのを防ぎます。</p></li>
+      <li><h3>スピーカーをつなぐ</h3><p>スピーカーをペアリングモードにして、「スピーカー」→「スキャン」→「接続」。初回はペアリングも行うので 10〜20 秒ほどかかります（ボタンに経過秒数が出ます）。一度つないだスピーカーは記憶され、次からは自動でつながります。</p></li>
+      <li><h3>プレイリストを選んで再生</h3><p>「再生」→「マイプレイリスト」から選んで「再生」。「設定」で <b>電源 ON で前回のプレイリストを自動再生</b> をオンにすれば、次からは電源を挿すだけで音が出ます。プレイリストは最後の曲のあと最初に戻ってくり返します（「設定」でオフにできます）。</p></li>
+    </ol>
+  </div>
+</section>
+
+<section id="touch">
+  <div class="wrap">
+    <div class="eyebrow">On the box</div>
+    <h2>本体のタッチ操作</h2>
+    <p>QR の右下にある <b>表示切替ボタン</b>以外は、画面のどこを触っても同じです。0.3 秒より短い接触は、誤タッチとして無視します（ボタンは軽く触れるだけで反応します）。</p>
+    <div class="gest">
+      <div class="card">
+        <svg viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="34" fill="none" stroke="#1f2a36" stroke-width="6"/><circle cx="42" cy="42" r="12" fill="#5DCAA5"/></svg>
+        <div class="dur">タップ</div>
+        <div class="what">再生 / 一時停止</div>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="34" fill="none" stroke="#1f2a36" stroke-width="6"/><path d="M42 8 A34 34 0 0 1 76 42" fill="none" stroke="#5DCAA5" stroke-width="6" stroke-linecap="round"/><path d="M34 32 L48 42 L34 52 Z M50 32 h4 v20 h-4 z" fill="#5DCAA5"/></svg>
+        <div class="dur">1.5<small> 秒長押し</small></div>
+        <div class="what">次の曲へ</div>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="34" fill="none" stroke="#ED93B1" stroke-width="6"/><rect x="28" y="28" width="12" height="12" fill="#ED93B1"/><rect x="44" y="28" width="12" height="12" fill="#ED93B1"/><rect x="28" y="44" width="12" height="12" fill="#ED93B1"/><rect x="46" y="46" width="5" height="5" fill="#ED93B1"/><rect x="51" y="51" width="5" height="5" fill="#ED93B1"/></svg>
+        <div class="dur">10<small> 秒長押し</small></div>
+        <div class="what" style="color:var(--magenta)">設定用 QR を全面表示</div>
+      </div>
+    </div>
+    <p style="margin-top:14px"><b>表示切替ボタン</b>: 押すたびに左側の表示が <b>レコード → リスト → 自動</b> と変わります。ボタンの右のアイコンが今のモードです（円盤 = レコード、行 = 「次に流れる曲」5 曲、循環する矢印 = レコード 20 秒とリスト 8 秒を交互）。曲が追加されたときは、どのモードでも 10 秒間リストに切り替わり、追加された曲を強調します。ボタンが押しにくい・押すと再生/停止になるときは、オーナー画面の「設定」→「タッチの位置合わせ」で、本体に出る「＋」を順に押してください。</p>
+    <p class="muted" style="margin-top:14px">10 秒長押しは、PIN の入力ロックの解除も兼ねます。全面 QR は 30 秒で元の画面に戻ります。音量・選曲・スピーカー切替はスマホから。</p>
+  </div>
+</section>
+
+<section id="screen">
+  <div class="wrap">
+    <div class="eyebrow">Reading the screen</div>
+    <h2>画面の見かた</h2>
+    <div class="anatomy">
+      <div class="device">
+        <svg viewBox="0 0 480 320" role="img" aria-labelledby="anaT">
+          <title id="anaT">画面の各部の番号</title>
+          <rect width="480" height="320" fill="#0B0F14"/>
+          <circle cx="100" cy="160" r="100" fill="#06090d" stroke="#5DCAA5" stroke-width="1.5"/>
+          <circle cx="100" cy="160" r="52" fill="#1a2a33"/>
+          <path d="M100 66 A94 94 0 0 1 182 113" fill="none" stroke="#ED93B1" stroke-width="3"/>
+          <rect x="222" y="56" width="200" height="14" rx="3" fill="#C9D1D9" opacity=".8"/>
+          <rect x="222" y="80" width="120" height="10" rx="3" fill="#7D8590"/>
+          <rect x="222" y="110" width="236" height="4" rx="2" fill="#1f2a36"/><rect x="222" y="110" width="98" height="4" rx="2" fill="#5DCAA5"/>
+          <rect x="222" y="138" width="170" height="10" rx="3" fill="#ED93B1" opacity=".8"/>
+          <rect x="222" y="172" width="116" height="116" rx="6" fill="#ffffff"/>
+          <g font-family="monospace" font-size="15" font-weight="700" text-anchor="middle">
+            <circle cx="30" cy="40" r="14" fill="#ED93B1"/><text x="30" y="45" fill="#0B0F14">1</text>
+            <circle cx="452" cy="64" r="14" fill="#ED93B1"/><text x="452" y="69" fill="#0B0F14">2</text>
+            <circle cx="452" cy="142" r="14" fill="#ED93B1"/><text x="452" y="147" fill="#0B0F14">3</text>
+            <circle cx="360" cy="230" r="14" fill="#ED93B1"/><text x="360" y="235" fill="#0B0F14">4</text>
+          </g>
+        </svg>
+      </div>
+      <ul class="legend">
+        <li><span class="n">1</span><div><b>レコード</b><br><small>ジャケット写真入り。再生中は約 9 秒で 1 回転し、一時停止で止まります。</small></div></li>
+        <li><span class="n">2</span><div><b>今の曲・アーティスト・進み具合</b><br><small>長い曲名は「…」で省略します。</small></div></li>
+        <li><span class="n">3</span><div><b>次の曲（リクエストした人）</b><br><small>ゲストが追加した曲は名前つきで出ます。</small></div></li>
+        <li><span class="n">4</span><div><b>参加用 QR</b><br><small>本体の Wi-Fi に入るための QR。1m ほど離れても読めます。</small></div></li>
+      </ul>
+    </div>
+    <h3 style="margin-top:36px">こんな画面が出たら</h3>
+    <table>
+      <tr><th>画面</th><th>意味とやること</th></tr>
+      <tr><td>「起動中…」と進捗バー</td><td>電源を入れた直後。20〜30 秒待つ</td></tr>
+      <tr><td>QR と 6 桁の数字</td><td>PIN がまだ無い。<a href="#start">はじめての設定</a>へ</td></tr>
+      <tr><td>「スマホでこの QR を読んでください」</td><td>インターネットにつながっていない。オーナーが「Wi-Fi」で上流を登録する（ローカルの曲は再生できる）</td></tr>
+      <tr><td>「この Wi-Fi は同意が必要。テザリングへ」</td><td>ホテルやカフェの同意画面つき Wi-Fi。本体からは同意できないので、スマホのテザリングを登録する</td></tr>
+      <tr><td>「スピーカーが見つかりません」</td><td>スピーカーの電源と距離を確認。記憶済みなら電源を入れると自動でつながる</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="owner">
+  <div class="wrap">
+    <div class="eyebrow">Owner view</div>
+    <h2>オーナー画面でできること</h2>
+    <p>ゲスト画面の下の「オーナーはこちら」から PIN で入ります。5 つのタブに分かれています。</p>
+    <div class="tabs">
+      <div class="card tab"><span class="name">再生</span><ul><li>再生/停止・次の曲・音量</li><li>マイプレイリストから選んで再生</li><li>キューの並べ替え（↑）と削除</li></ul></div>
+      <div class="card tab"><span class="name">Wi-Fi</span><ul><li>上流 Wi-Fi を一覧・手入力・写真から登録</li><li>登録済みの Wi-Fi の管理（優先順に自動接続）</li><li>本体 Wi-Fi（端末 AP）のパスワード再生成</li></ul></div>
+      <div class="card tab"><span class="name">スピーカー</span><ul><li>スキャンして接続</li><li>記憶済みのスピーカーへ切り替え</li></ul></div>
+      <div class="card tab"><span class="name">音源</span><ul><li>音源サービスの認証を登録・削除</li><li>再生エンジン（曲を取得する部品）の「今すぐ更新」</li></ul></div>
+      <div class="card tab"><span class="name">設定</span><ul><li>ゲスト受付のオン/オフ、1 人あたりの上限</li><li>ゲストの「次に流す」を許可</li><li>電源 ON で自動再生</li><li>プレイリストのくり返し再生（既定はオン）</li><li>ソフトウェア更新（新しいバージョンの確認とアップグレード）</li><li>初期化（PIN・Wi-Fi・認証・スピーカーを消去）</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="venue">
+  <div class="wrap">
+    <div class="eyebrow">At the venue</div>
+    <h2>会場で使う: Wi-Fi を登録する 3 つの方法</h2>
+    <p>本体がインターネットにつながると、検索や配信の曲が使えます。会場の Wi-Fi は一度登録すれば記憶され、次からは自動でつながります。</p>
+    <div class="grid g3">
+      <div class="card"><h3>一覧から選ぶ</h3><p>「Wi-Fi」→「スキャン」→ 選んでパスワードを入れ「保存して接続」。</p></div>
+      <div class="card"><h3>手入力</h3><p>「一覧にない/ステルス」で SSID を直接入力。見えない（ステルス）Wi-Fi はトグルをオンに。</p></div>
+      <div class="card"><h3>写真から取り込む</h3><p>貼り紙が Wi-Fi の QR なら「写真から取り込む」で撮影すると自動で入力されます。iPhone ならパスワード欄を長押し →「テキストをスキャン」で文字を読み取れます。</p></div>
+    </div>
+    <div class="note">本体は 2.4GHz の Wi-Fi にだけつながります（スマホ用の Wi-Fi と同じ電波を分け合うため）。5GHz 専用の Wi-Fi や、同意画面が出る Wi-Fi はつながらないので、スマホのテザリングを登録してください。</div>
+    <p>撤収は電源を抜くだけ。設定はすべて本体に残ります。</p>
+  </div>
+</section>
+
+<section id="source">
+  <div class="wrap">
+    <div class="eyebrow">Music source</div>
+    <h2>音源を登録する</h2>
+    <p>何も登録しなくても、本体に入れた MP3（フォルダ = プレイリスト）は再生できます。YouTube Music のプレイリストを使うときは、PC のブラウザで認証情報（リクエストヘッダ）を一度だけ取り出して登録します。</p>
+    <div class="note">iPhone・Android のブラウザでは取り出せません（開発者ツールがないため）。Mac か Windows の PC を使ってください。わかりやすいのは Firefox です。</div>
+    <ol class="steps">
+      <li><h3>PC のブラウザで music.youtube.com にログイン</h3><p>Firefox / Chrome / Edge で、<b>プライベートウィンドウ</b>（Firefox は <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>、Chrome のシークレットウィンドウは <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>。Mac は <kbd>Ctrl</kbd> を <kbd>⌘</kbd> に）を開き、使いたい Google アカウントでログインします。ふだんのウィンドウで開いたタブは Google がログイン情報をときどき入れ替えるため、本体側が早く使えなくなることがあります。</p></li>
+      <li><h3>開発者ツールの「ネットワーク」を開く</h3><p><kbd>F12</kbd> を押します（Mac は <kbd>⌥ Option</kbd> + <kbd>⌘ Command</kbd> + <kbd>I</kbd>）。開いたパネルの上にあるタブから「ネットワーク」（Network）を選び、絞り込み欄（Firefox は「URL で絞り込み」、Chrome は「フィルタ」）に <code>browse</code> と入力します。</p></li>
+      <li><h3>リクエストを出す</h3><p>YouTube Music の左メニューの「ライブラリ」や「ホーム」を<b>クリック</b>します。<kbd>F5</kbd> の再読み込みでは出てきません（最初の画面のデータはページに埋め込まれているため）。何も出ないときは、ネットワークタブの記録が止まっていないか、種類の絞り込みが「すべて」になっているかを確かめます。メソッドが <code>POST</code>、名前が <code>browse?…</code> の行を 1 つ選びます。</p></li>
+      <li><h3>リクエストヘッダをコピー</h3>
+        <p><b>Firefox:</b> 右側の「ヘッダー」タブ →「リクエストヘッダー」の右にある「生ヘッダー」（Raw）スイッチをオン → 表示されたテキストをクリックして <kbd>Ctrl</kbd>+<kbd>A</kbd>、<kbd>Ctrl</kbd>+<kbd>C</kbd>（Mac は <kbd>⌘</kbd>+<kbd>A</kbd>、<kbd>⌘</kbd>+<kbd>C</kbd>）。先頭が <code>POST /youtubei/v1/browse?…</code> になっていれば正解です。</p>
+        <p><b>Chrome / Edge:</b> 一覧のその行を右クリック →「コピー」→「リクエスト ヘッダーをコピー」（Copy request headers）。このメニューがない場合は、行を選んで「ヘッダー」タブ →「リクエスト ヘッダー」の「ソースを表示」をオンにして、全部選んでコピーします。</p>
+        <p>どちらの場合も、<code>Cookie:</code> の行が入っているか確かめてください。</p></li>
+      <li><h3>オーナー画面の「音源」に貼って「登録」</h3><p>同じ PC を本体の Wi-Fi（<code>soikaxa-XXXX</code>）につなぎ、<code>http://10.42.0.1/#owner</code> を開いて（待機中は本体の画面にもこの URL が出ています） PIN でログイン →「音源」の欄に貼り付けて「登録」。テキストが長いので、スマホに送るより PC から貼るほうが確実です。登録できたら、音源を切り替えてプレイリストを選ぶだけ。</p></li>
+    </ol>
+    <div class="note c">このテキストはパスワードと同じ扱いです。人に送ったり、チャットや SNS に貼ったりしないでください。本体の microSD の中だけに保存され、外部には送りません。コピーしたら、<b>ログアウトせずに</b>プライベートウィンドウを閉じてください。ログアウトやパスワード変更をすると使えなくなります。配信の曲が取れなくなったら（本体の MP3 に切り替わったら）、同じ手順で取り直して「登録」で上書きします。不要になったら「認証削除」、手放すときは「初期化」を。</div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="eyebrow">Troubleshooting</div>
+    <h2>困ったとき</h2>
+    <details><summary>QR を読んでも画面が開かない</summary><div><p>Wi-Fi に入れていれば、ブラウザで <code>http://10.42.0.1/</code> を開いてください。iPhone は「インターネットなし」の Wi-Fi から自動で離れることがあります。操作は短めに済ませるのがコツです。</p></div></details>
+    <details><summary>本体の Wi-Fi（soikaxa-XXXX）が見つからない</summary><div><p>起動に 30 秒ほどかかります。それでも出ないときは、上流の Wi-Fi が 5GHz の可能性があります。2.4GHz の Wi-Fi かテザリングに切り替えてください。</p></div></details>
+    <details><summary>音が出ない・スピーカーがつながらない</summary><div><p>スピーカーの電源とペアリングモードを確認し、「スピーカー」でスキャンし直します。ほかのスマホとつながったままのスピーカーには接続できません。スマホ側の Bluetooth を切ってください。</p></div></details>
+    <details><summary>PIN を忘れた・入力ロックがかかった</summary><div><p>ロックは本体を 10 秒長押しで解除できます。PIN を忘れたときは本体の設定を初期化する必要があります（手順は <a href="https://github.com/froggugugugu/SoiKaxa/blob/main/docs/setup-raspberry-pi.md">setup-raspberry-pi.md</a> の「うまくいかないとき」）。</p></div></details>
+    <details><summary>ゲストに曲を追加させたくない</summary><div><p>「設定」でゲスト受付をオフにすると、ゲスト画面は「ゲスト受付は停止中です。」になります。今の曲や次の曲は見えたままです。</p></div></details>
+    <details><summary>自宅の PC からオーナー画面を開きたい</summary><div><p>開けません（仕様）。操作は本体の Wi-Fi に入ったスマホからだけ受け付け、近くにいない人が操作できないようにしています。</p></div></details>
+    <details><summary>SoiKaxa を新しいバージョンにしたい</summary><div><p>「設定」→「ソフトウェア更新」で <b>新しいバージョンを確認</b> → <b>アップグレード</b>。本体がインターネットにつながっている必要があります。数分で終わり、音楽はその間止まります。終わったら PIN を入れ直してください。新しい版がうまく動かなかったときは、自動で元の版に戻ります。</p></div></details>
+    <details><summary>曲が途中で飛ばされる</summary><div><p>配信の曲が取得できないと自動で次へ進みます。3 曲続けて失敗すると、本体の MP3 に切り替えて音を止めません。本体は毎日自動で再生エンジンを更新しますが、急ぐときは「音源」→「今すぐ更新」。</p></div></details>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><span class="logo">SOI<b>KAXA</b></span> — Raspberry Pi 4B ひとつで動く Bluetooth 音楽プレーヤー。MIT License。</p>
+    <p><a href="./">← 紹介ページ（トップ）へ</a></p> <p>仕様の詳細は <code>docs/PRD.md</code>、インストールは <code>docs/setup-raspberry-pi.md</code>。</p>
+  </div>
+</footer>
+
+</body>
+</html>
