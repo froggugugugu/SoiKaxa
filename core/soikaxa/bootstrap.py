@@ -157,9 +157,9 @@ def touch_orientation(env: Mapping[str, str]) -> dict[str, bool]:
     return {k: env.get(f"SOIKAXA_TOUCH_{v}") == "1" for k, v in keys.items()}
 
 
-class ListButton(Protocol):
-    def hits_list_button(self, pos: tuple[int, int] | None) -> bool: ...
-    def toggle_list(self) -> None: ...
+class ModeButton(Protocol):
+    def hits_mode_button(self, pos: tuple[int, int] | None) -> bool: ...
+    def cycle_mode(self) -> None: ...
 
 
 def on_gesture(
@@ -168,10 +168,10 @@ def on_gesture(
     show_setup: Callable[[], None],
     unlock: Callable[[], None] = lambda: None,
     pos: tuple[int, int] | None = None,
-    lcd: ListButton | None = None,
+    lcd: ModeButton | None = None,
 ) -> None:
-    if gesture in (Gesture.TAP, Gesture.TOGGLE) and lcd is not None and lcd.hits_list_button(pos):
-        lcd.toggle_list()  # ボタンは軽いタップでも押せる。再生/停止にはしない
+    if gesture in (Gesture.TAP, Gesture.TOGGLE) and lcd is not None and lcd.hits_mode_button(pos):
+        lcd.cycle_mode()  # ボタンは軽いタップでも押せる。再生/停止にはしない
     elif gesture == Gesture.TAP:
         return  # ボタン以外の軽いタップは誤タッチとして無視
     elif gesture == Gesture.TOGGLE:

@@ -14,7 +14,8 @@ RECORD_XY = (20, (HEIGHT - DIAMETER) // 2)
 
 
 LIST_BOX = (0, 0, 230, HEIGHT)  # リスト表示で使う左側の領域（レコードの場所を含む）
-LIST_BUTTON = (388, 232, 474, 306)  # QR の右、左側の表示を切り替えるボタン（タップ領域。44px 以上）
+MODE_BUTTON = (386, 232, 479, 306)  # QR の右。左側の表示モードを切り替えるボタンとアイコン（タップ領域）
+MODE_LABELS = {"disc": "レコード", "list": "リスト", "auto": "自動"}
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class NowPlayingView:
     notice: str = ""  # 例: 「音源側の変更で停止中」
     hint: str = ""  # 待機中だけ: ブラウザで開く URL（アーティスト行に出す）
     queue_rows: tuple[QueueRow, ...] | None = None  # None ならレコード、あれば左側に次の曲のリスト
+    mode: str = "disc"  # ボタンで選んだ表示モード: disc / list / auto
 
 
 def _canvas() -> tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -135,18 +137,39 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
         img.paste(make_qr(view.guest_qr, 140), (x, 172))
         d.text((x + 150, 178), "曲を追加", font=font(16), fill=CYAN)
         d.text((x + 150, 202), "QR を読む", font=font(14), fill=MUTED)
-    _draw_list_button(d, showing_list=view.queue_rows is not None)
+    _draw_mode_button(d, view.mode)
     return img
 
 
-def _draw_list_button(d: ImageDraw.ImageDraw, showing_list: bool) -> None:
-    """押すと左側がレコード ⇄ 次の曲リストに切り替わる。ラベルは押したあとの表示。"""
-    x0, y0, x1, y1 = LIST_BUTTON
-    d.rounded_rectangle(LIST_BUTTON, radius=8, outline=CYAN, width=2)
-    label = "レコード" if showing_list else "リスト"
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-    d.text((cx, cy - 9), label, font=font(16), fill=CYAN, anchor="mm")
-    d.text((cx, cy + 13), "表示", font=font(13), fill=MUTED, anchor="mm")
+def _draw_mode_button(d: ImageDraw.ImageDraw, mode: str) -> None:
+    """押すたびに レコード → リスト → 自動。左にボタン（今のモード名）、右にモードのアイコン。"""
+    x0, y0, x1, y1 = MODE_BUTTON
+    bx1 = x1 - 31  # 右の 31px はアイコン
+    d.rounded_rectangle((x0, y0, bx1, y1), radius=8, outline=CYAN, width=2)
+    cx, cy = (x0 + bx1) // 2, (y0 + y1) // 2
+    d.text((cx, cy - 9), MODE_LABELS.get(mode, mode), font=font(13), fill=CYAN, anchor="mm")
+    d.text((cx, cy + 13), "切替", font=font(12), fill=MUTED, anchor="mm")
+    _draw_mode_icon(d, (x1 - 15, cy), mode)
+
+
+def _draw_mode_icon(d: ImageDraw.ImageDraw, center: tuple[int, int], mode: str) -> None:
+    """モードのアイコン（約 26px 四方）。レコード = 円盤、リスト = 行、自動 = 循環する矢印。"""
+    x, y = center
+    if mode == "list":
+        for i, dy in enumerate((-8, 0, 8)):
+            d.ellipse((x - 12, y + dy - 2, x - 8, y + dy + 2), fill=MAGENTA if i == 0 else CYAN)
+            d.line((x - 4, y + dy, x + 12, y + dy), fill=CYAN, width=2)
+    elif mode == "auto":
+        r = 11
+        d.arc((x - r, y - r, x + r, y + r), start=200, end=340, fill=CYAN, width=2)
+        d.arc((x - r, y - r, x + r, y + r), start=20, end=160, fill=MAGENTA, width=2)
+        d.polygon([(x + r - 4, y - 7), (x + r + 4, y - 7), (x + r, y - 1)], fill=CYAN)  # 右上の矢じり
+        d.polygon([(x - r - 4, y + 7), (x - r + 4, y + 7), (x - r, y + 1)], fill=MAGENTA)  # 左下の矢じり
+    else:
+        r = 12
+        d.ellipse((x - r, y - r, x + r, y + r), fill=(0x10, 0x15, 0x1B), outline=CYAN, width=2)
+        d.arc((x - r + 3, y - r + 3, x + r - 3, y + r - 3), start=-60, end=-15, fill=MAGENTA, width=2)
+        d.ellipse((x - 2, y - 2, x + 2, y + 2), fill=CYAN)
 
 
 def _draw_queue(d: ImageDraw.ImageDraw, rows: tuple[QueueRow, ...]) -> None:

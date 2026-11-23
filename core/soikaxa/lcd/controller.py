@@ -18,7 +18,7 @@ from ..state import State
 from .fb import Framebuffer, to_rgb565
 from .record import DIAMETER, RecordFrames, record_disc
 from .screens import (
-    LIST_BUTTON,
+    MODE_BUTTON,
     RECORD_XY,
     NowPlayingView,
     QueueRow,
@@ -32,7 +32,11 @@ from .screens import (
 log = logging.getLogger(__name__)
 
 SETUP_FULL_SEC = 30.0
-# 左側はボタンでレコード ⇄ 次の曲リストを切り替える。曲が追加されたらリストを一定時間出して強調する
+# 左側の表示はボタンで レコード → リスト → 自動 と切り替える。自動はレコードとリストを交互に出す。
+# どのモードでも、曲が追加されたらリストを一定時間出して強調する
+MODES = ("disc", "list", "auto")
+AUTO_DISC_SEC = 20.0
+AUTO_LIST_SEC = 8.0
 LIST_ADDED_SEC = 10.0
 FPS = 8
 MSG_NO_SPEAKER = "スピーカーが見つかりません"
@@ -98,7 +102,8 @@ class LcdController:
         self._last_screen: str = ""
         self._showing_list = False
         self._last_list = False  # 直前の全面描画が左側リストだったか（レコードを上書きしない）
-        self._list_chosen = False  # ボタンでリストを選んでいるか
+        self._mode = "disc"  # ボタンで選んだ表示モード
+        self._cycle_start = clock()  # 自動モードの起点（レコードから始める）
         self._added_until = 0.0
         self._highlight: str | None = None
         self._seen_items: set[str] | None = None
@@ -152,6 +157,7 @@ class LcdController:
             # 待機中は PC からもたどり着けるよう、AP の IP でオーナー画面の URL を出す
             hint="" if st.now else self.portal_url + "#owner",
             queue_rows=rows,
+            mode=self._mode,
         )
 
     def _queue_rows(self, upcoming: list[TrackView]) -> tuple[QueueRow, ...] | None:
@@ -161,12 +167,17 @@ class LcdController:
         if self._seen_items is not None and (new := items - self._seen_items):
             self._highlight = next(u.item_id for u in reversed(upcoming) if u.item_id in new)
             self._added_until = now + LIST_ADDED_SEC
+            self._cycle_start = self._added_until  # 自動モードは追加表示のあとレコードから数え直す
         self._seen_items = items
         added = now < self._added_until
         if not added:
             self._highlight = None
-            if not self._list_chosen:
+            if self._mode == "disc":
                 return None
+            if self._mode == "auto":
+                period = AUTO_DISC_SEC + AUTO_LIST_SEC
+                if (now - self._cycle_start) % period < AUTO_DISC_SEC:
+                    return None
         return tuple(
             QueueRow(
                 u.title or "—",
@@ -176,18 +187,18 @@ class LcdController:
             for u in upcoming[:5]
         )
 
-    def toggle_list(self) -> None:
-        """LCD のボタン: 左側をレコード ⇄ リストに切り替える（追加直後の強調表示も終える）。"""
-        showing = self._list_chosen or self.clock() < self._added_until
-        self._list_chosen = not showing
+    def cycle_mode(self) -> None:
+        """LCD のボタン: レコード → リスト → 自動 → レコード（追加直後の強調表示も終える）。"""
+        self._mode = MODES[(MODES.index(self._mode) + 1) % len(MODES)]
         self._added_until = 0.0
+        self._cycle_start = self.clock()
         self.invalidate()
 
-    def hits_list_button(self, pos: tuple[int, int] | None) -> bool:
-        """触れた位置がリストボタンか。ボタンを出している画面（通常画面）のときだけ True。"""
+    def hits_mode_button(self, pos: tuple[int, int] | None) -> bool:
+        """触れた位置がモードボタン（アイコン含む）か。ボタンを出している画面（通常画面）のときだけ True。"""
         if pos is None or self._last_screen != "now" or self._setup_active:
             return False
-        x0, y0, x1, y1 = LIST_BUTTON
+        x0, y0, x1, y1 = MODE_BUTTON
         return x0 <= pos[0] <= x1 and y0 <= pos[1] <= y1
 
     def compose(self) -> tuple[str, Image.Image]:

@@ -10,6 +10,8 @@ from soikaxa.daemon import PlayerService, TrackView
 from soikaxa.fakes import FakeTransport
 from soikaxa.lcd import screens
 from soikaxa.lcd.controller import (
+    AUTO_DISC_SEC,
+    AUTO_LIST_SEC,
     LIST_ADDED_SEC,
     MSG_NO_SPEAKER,
     CoverLoader,
@@ -369,10 +371,10 @@ def test_on_gesture_list_button(rt):
     toggled = []
 
     class Lcd:
-        def hits_list_button(self, pos):
+        def hits_mode_button(self, pos):
             return pos == (430, 270)
 
-        def toggle_list(self):
+        def cycle_mode(self):
             toggled.append(1)
 
     lcd = Lcd()
@@ -421,33 +423,43 @@ def _playing(lcd):
     return c, svc, fb, jobs, clock
 
 
-def test_list_button_toggles_left_area(lcd):
-    """自動では切り替えない。LCD のボタンでレコード ⇄ リストを切り替える。"""
+def test_mode_button_cycles_record_list_auto(lcd):
+    """LCD のボタンを押すたびに レコード → リスト → 自動 → レコード。時間では勝手に変わらない。"""
     c, svc, fb, jobs, clock = _playing(lcd)
-    assert c.view()[1].queue_rows is None
+    v = c.view()[1]
+    assert v.queue_rows is None and v.mode == "disc"
     clock.t += 120
-    assert c.view()[1].queue_rows is None  # 時間がたっても勝手に切り替わらない
-    c.toggle_list()
-    rows = c.view()[1].queue_rows
-    assert rows and rows[0].title == "B" and not any(r.highlight for r in rows)
-    c.toggle_list()
     assert c.view()[1].queue_rows is None
+    c.cycle_mode()
+    v = c.view()[1]
+    assert v.mode == "list" and v.queue_rows and v.queue_rows[0].title == "B"
+    clock.t += 120
+    assert c.view()[1].queue_rows is not None  # リストも勝手には戻らない
+    c.cycle_mode()
+    v = c.view()[1]
+    assert v.mode == "auto" and v.queue_rows is None  # 自動はレコードから始める
+    clock.t += AUTO_DISC_SEC + 1
+    assert c.view()[1].queue_rows is not None
+    clock.t += AUTO_LIST_SEC
+    assert c.view()[1].queue_rows is None
+    c.cycle_mode()
+    assert c.view()[1].mode == "disc"
 
 
 def test_list_button_hit_area(lcd):
     c, svc, fb, jobs, clock = _playing(lcd)
-    x0, y0, x1, y1 = screens.LIST_BUTTON
+    x0, y0, x1, y1 = screens.MODE_BUTTON
     c.render_once()
-    assert c.hits_list_button(((x0 + x1) // 2, (y0 + y1) // 2))
-    assert not c.hits_list_button((20, 20)) and not c.hits_list_button(None)
+    assert c.hits_mode_button(((x0 + x1) // 2, (y0 + y1) // 2))
+    assert not c.hits_mode_button((20, 20)) and not c.hits_mode_button(None)
     c.show_setup_qr()
     c.render_once()
-    assert not c.hits_list_button(((x0 + x1) // 2, (y0 + y1) // 2))  # ボタンが出ていない画面では押せない
+    assert not c.hits_mode_button(((x0 + x1) // 2, (y0 + y1) // 2))  # ボタンが出ていない画面では押せない
 
 
 def test_added_list_returns_to_chosen_mode(lcd):
     c, svc, fb, jobs, clock = _playing(lcd)
-    c.toggle_list()
+    c.cycle_mode()
     c.view()
     svc.enqueue(Track(id="g", title="ゲストの曲", source="local"), added_by="Aさん")
     assert c.view()[1].queue_rows[0].highlight
@@ -485,7 +497,7 @@ def test_list_without_upcoming_is_empty(lcd):
     c, svc, fb, jobs, clock, _ = lcd
     svc.dispatch(Event.NET_UP)
     assert c.view()[1].queue_rows is None
-    c.toggle_list()
+    c.cycle_mode()
     assert c.view()[1].queue_rows == ()  # 「次の曲はありません」を出す
 
 

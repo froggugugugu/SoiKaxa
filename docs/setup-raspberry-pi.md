@@ -121,7 +121,7 @@ scripts/deploy.sh soi@soikaxa.local --code-only   # 送信 → サービス再�
 | 4 | LCD に曲名・次の曲・QR が出て、レコードが回る | 回転がカクつかない |
 | 5 | 画面タップ（0.3 秒以上）で一時停止/再開、1.5 秒長押しで次の曲 | 動く |
 | 6 | 10 秒長押しで設定用 QR が全面に出る | 出る（30 秒で戻る） |
-| 6b | QR 右下の「リスト」ボタンを軽くタップ | 左側がレコード ⇄ 次の曲リストに切り替わる（再生は止まらない） |
+| 6b | QR 右下の表示切替ボタンを軽くタップ（3 回） | 左側が レコード → リスト → 自動 と切り替わり、右のアイコンも変わる（再生は止まらない） |
 | 7 | 別のスマホ（ゲスト）で QR → 検索 →「追加」 | LCD の「次:」に曲名と名前が出る |
 | 8 | 曲が終わると次の曲に進む | 2 曲以上続けて進む |
 | 9 | 再生中にスピーカーの電源を切って入れ直す | 30 秒程度で再接続する |
@@ -146,7 +146,7 @@ Pi に入って調べるときは `ssh soi@soikaxa.local`。ログは `journalct
 | `install.sh` が途中で止まった | 表示されたエラーを記録して、もう一度 `deploy.sh` を実行する（途中からやり直せる） |
 | LCD が白いまま | 電源を抜き差しする。直らなければ `ls /dev/fb*` と `dmesg \| grep -i -E "spi\|ili\|fb"` を記録する |
 | LCD の向きが縦・上下逆 | `/boot/firmware/config.txt` の `dtoverlay=osoyoo35b:speed=20000000` に `,rotate=90`（または `270`）を足して再起動（未検証） |
-| 「リスト」ボタンが反応しない・別の場所で反応する | タッチの向きが画面とずれている。`journalctl -u soikaxa@$USER -f` を見ながら画面の左上と右下を触り、ログの `screen=(x, y)` が左上 ≒ (0, 0)・右下 ≒ (479, 319) になるか確かめる。ずれていれば `sudo systemctl edit soikaxa@$USER` で `[Service]` の下に `Environment=SOIKAXA_TOUCH_SWAP_XY=1`（縦横が入れ替わる）/ `Environment=SOIKAXA_TOUCH_INVERT_X=1`（左右が逆）/ `Environment=SOIKAXA_TOUCH_INVERT_Y=1`（上下が逆）を必要なだけ足し、`sudo systemctl restart soikaxa@$USER` |
+| 表示切替ボタンが反応しない・別の場所で反応する | タッチの向きが画面とずれている。`journalctl -u soikaxa@$USER -f` を見ながら画面の左上と右下を触り、ログの `screen=(x, y)` が左上 ≒ (0, 0)・右下 ≒ (479, 319) になるか確かめる。ずれていれば `sudo systemctl edit soikaxa@$USER` で `[Service]` の下に `Environment=SOIKAXA_TOUCH_SWAP_XY=1`（縦横が入れ替わる）/ `Environment=SOIKAXA_TOUCH_INVERT_X=1`（左右が逆）/ `Environment=SOIKAXA_TOUCH_INVERT_Y=1`（上下が逆）を必要なだけ足し、`sudo systemctl restart soikaxa@$USER` |
 | LCD に文字化け（□） | `fc-list \| grep -i noto \| head -3`（`fonts-noto-cjk` が入っているか） |
 | AP（`soikaxa-XXXX`）が見えない | ① `nmcli -t -f ACTIVE,SSID,CHAN dev wifi list ifname wlan0 --rescan no \| grep ^yes` のチャンネルが 15 以上 → 上流が 5GHz。2.4GHz で見える Wi-Fi に替えるか、ルーターの 5GHz を 36〜48 にする。② `sudo systemd-run --uid=$USER --pipe --wait nmcli general permissions \| grep settings.modify.system` が `no` → `/etc/polkit-1/rules.d/10-soikaxa.rules` があるか確認。③ `iw dev` に `uap0` が無い → `systemctl status soikaxa-uap0` |
 | AP に入れるが画面が開かない | ブラウザで `http://10.42.0.1/` を直接開く。開けば自動表示だけの問題（機種と OS を記録） |
