@@ -78,13 +78,25 @@ class BluetoothManager:
         return self.info(mac).get("Connected") == "yes"
 
     def pair_and_connect(self, mac: str) -> bool:
+        """オーナーが選んだ機器に接続する。ペアリング済みでもつながらなければ組み直す。
+
+        スピーカー側がペアリングを忘れる（リセット・別機器とのペアリング）と、本体側の古い鍵では
+        接続できない。ペアリングモードの機器を前にした明示操作なので、ここでだけ組み直す
+        （自動再接続の `connect` では行わない。電源が切れているだけの場合があるため）。
+        """
         mac = validate_mac(mac)
-        if self.info(mac).get("Paired") != "yes":
-            out = self.r.run(["bluetoothctl", "--timeout", "20", "pair", mac], timeout=25)
-            if not out.ok and "AlreadyExists" not in out.stdout + out.stderr:
-                return False
+        if self.info(mac).get("Paired") == "yes":
+            if self.connect(mac):
+                return True
+            self.remove(mac)
+        if not self._pair(mac):
+            return False
         self._ctl("trust", mac)
         return self.connect(mac)
+
+    def _pair(self, mac: str) -> bool:
+        out = self.r.run(["bluetoothctl", "--timeout", "20", "pair", mac], timeout=25)
+        return out.ok or "AlreadyExists" in out.stdout + out.stderr
 
     def connect(self, mac: str) -> bool:
         mac = validate_mac(mac)

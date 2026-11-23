@@ -393,7 +393,7 @@ function btSetBusy(on, active) {
 }
 function btRow(name, hint, mac, onDone) { // 名前・状態の行・接続ボタン
   const li = el("li"), info = el("div", null, { class: "grow" }), st = el("div", hint.text || "", { class: hint.cls || "sub" });
-  info.append(el("div", name), st);
+  info.append(el("div", name), el("div", mac, { class: "sub" }), st); // MAC は同名機器の見分けと bluetoothctl での確認用
   const b = btn("接続", () => guard(async () => { if (await btConnect(b, st, mac, hint.wait)) onDone(); }));
   b.disabled = btBusy; li.append(info, b); return li;
 }
@@ -411,7 +411,7 @@ async function btConnect(b, st, mac, wait) {
   finally { clearInterval(h); b.textContent = "接続"; btSetBusy(false); }
 }
 const BT_WAIT_NEW = "接続しています。初回はペアリングも行うので 10〜20 秒ほど（最大 40 秒）";
-const BT_WAIT_KNOWN = "接続しています。数秒〜15 秒ほど（最大 40 秒）";
+const BT_WAIT_KNOWN = "接続しています。数秒〜15 秒ほど。つながらないときはペアリングし直すので、スピーカーをペアリングモードにしてお待ちください（最大 1 分）";
 $("btScan").onclick = () => guard(async () => {
   if (btBusy) return;
   const b = $("btScan"), ul = $("btList"), t0 = Date.now(), SEC = 8; // bt.scan() の既定秒数

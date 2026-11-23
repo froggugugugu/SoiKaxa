@@ -59,6 +59,34 @@ def test_already_paired_skips_pair():
     assert not r.called(*PAIR)
 
 
+def test_stale_pairing_is_removed_and_repaired():
+    """スピーカー側がペアリングを忘れた（リセット・別機器とペアリング）ときは、本体側も消して組み直す。"""
+    state = {"removed": False}
+
+    def on_remove(argv):
+        state["removed"] = True
+        return CommandResult(0)
+
+    def on_connect(argv):
+        if state["removed"]:
+            return CommandResult(0, "Connection successful")
+        return CommandResult(1, "Failed to connect")
+
+    r = bt_runner("Paired: yes\nConnected: no").on(CONNECT, on_connect)
+    r.on(["bluetoothctl", "remove"], on_remove)
+    assert bt.BluetoothManager(r).pair_and_connect(MAC)
+    cmds = [c[1:] for c in r.calls]
+    order = [cmds.index(x) for x in (["remove", MAC], ["--timeout", "20", "pair", MAC], ["trust", MAC])]
+    assert order == sorted(order)
+
+
+def test_stale_pairing_repair_gives_up_when_pair_fails():
+    r = bt_runner("Paired: yes\nConnected: no").on(CONNECT, CommandResult(1, "Failed to connect"))
+    r.on(PAIR, CommandResult(1, "Failed to pair"))
+    assert not bt.BluetoothManager(r).pair_and_connect(MAC)
+    assert r.called("bluetoothctl", "remove")
+
+
 def test_pair_failure_and_already_exists():
     r = bt_runner().on(PAIR, CommandResult(1, "Failed to pair"))
     assert not bt.BluetoothManager(r).pair_and_connect(MAC)
