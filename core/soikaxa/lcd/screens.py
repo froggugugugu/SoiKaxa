@@ -14,7 +14,7 @@ RECORD_XY = (20, (HEIGHT - DIAMETER) // 2)
 
 
 LIST_BOX = (0, 0, 230, HEIGHT)  # リスト表示で使う左側の領域（レコードの場所を含む）
-MODE_BUTTON = (386, 232, 479, 306)  # QR の右。左側の表示モードを切り替えるボタンとアイコン（タップ領域）
+MODE_BUTTON = (388, 230, 476, 308)  # QR の右。左側の表示モードを切り替えるボタン（枠 = タップ領域）
 MODE_LABELS = {"disc": "レコード", "list": "リスト", "auto": "自動"}
 
 
@@ -142,14 +142,12 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
 
 
 def _draw_mode_button(d: ImageDraw.ImageDraw, mode: str) -> None:
-    """押すたびに レコード → リスト → 自動。左にボタン（今のモード名）、右にモードのアイコン。"""
+    """押すたびに レコード → リスト → 自動。枠の中に、今のモードのアイコン（上）とモード名（下）。"""
     x0, y0, x1, y1 = MODE_BUTTON
-    bx1 = x1 - 31  # 右の 31px はアイコン
-    d.rounded_rectangle((x0, y0, bx1, y1), radius=8, outline=CYAN, width=2)
-    cx, cy = (x0 + bx1) // 2, (y0 + y1) // 2
-    d.text((cx, cy - 9), MODE_LABELS.get(mode, mode), font=font(13), fill=CYAN, anchor="mm")
-    d.text((cx, cy + 13), "切替", font=font(12), fill=MUTED, anchor="mm")
-    _draw_mode_icon(d, (x1 - 15, cy), mode)
+    d.rounded_rectangle(MODE_BUTTON, radius=8, outline=CYAN, width=2)
+    cx = (x0 + x1) // 2
+    _draw_mode_icon(d, (cx, y0 + 24), mode)
+    d.text((cx, y1 - 18), MODE_LABELS.get(mode, mode), font=font(14), fill=CYAN, anchor="mm")
 
 
 def _draw_mode_icon(d: ImageDraw.ImageDraw, center: tuple[int, int], mode: str) -> None:
