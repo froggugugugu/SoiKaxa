@@ -13,7 +13,9 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +27,9 @@ class Gesture(str, Enum):
     TOGGLE = "TOGGLE"
     NEXT = "NEXT"
     SETUP_QR = "SETUP_QR"
+
+
+TouchResult = tuple[Gesture, Point | None, Point | None]  # (ジェスチャ, 画面の位置, 生の座標)
 
 
 class TouchClassifier:
@@ -71,48 +76,78 @@ class TouchClassifier:
         return Gesture.TOGGLE if held >= self.min_sec else Gesture.TAP
 
 
-def map_touch(
-    x: int,
-    y: int,
-    *,
-    x_range: tuple[int, int],
-    y_range: tuple[int, int],
-    size: tuple[int, int],
-    swap_xy: bool = False,
-    invert_x: bool = False,
-    invert_y: bool = False,
-) -> Point:
-    """タッチパネルの生の座標を画面の座標（0..幅-1, 0..高さ-1）に変換する。
+@dataclass(frozen=True)
+class TouchCal:
+    """タッチパネルの生の座標 → 画面の座標の対応（位置合わせの結果）。
 
-    パネルの向きは LCD の回転設定とずれることがあるので、入れ替え・反転を指定できる。
+    swap: 生の X/Y が画面の縦横と入れ替わっている。
+    x / y: 画面の左端・右端（上端・下端）に当たる生の値。逆向きなら大小が逆になる。
     """
-    fx = (x - x_range[0]) / max(1, x_range[1] - x_range[0])
-    fy = (y - y_range[0]) / max(1, y_range[1] - y_range[0])
-    if swap_xy:
-        fx, fy = fy, fx
-    if invert_x:
-        fx = 1 - fx
-    if invert_y:
-        fy = 1 - fy
+
+    swap: bool
+    x: tuple[int, int]
+    y: tuple[int, int]
+
+    def map(self, raw_x: int, raw_y: int, size: tuple[int, int]) -> Point:
+        a, b = (raw_y, raw_x) if self.swap else (raw_x, raw_y)
+        fx = (a - self.x[0]) / (self.x[1] - self.x[0])
+        fy = (b - self.y[0]) / (self.y[1] - self.y[0])
+        w, h = size
+        return (round(min(1.0, max(0.0, fx)) * (w - 1)), round(min(1.0, max(0.0, fy)) * (h - 1)))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"swap": self.swap, "x": list(self.x), "y": list(self.y)}
+
+    @classmethod
+    def from_dict(cls, d: Any) -> TouchCal | None:
+        """設定ファイルの値から作る。壊れていれば None（既定値を使う）。"""
+        try:
+            cal = cls(bool(d["swap"]), (int(d["x"][0]), int(d["x"][1])), (int(d["y"][0]), int(d["y"][1])))
+        except (TypeError, KeyError, IndexError, ValueError):
+            return None
+        if not isinstance(d["swap"], bool) or cal.x[0] == cal.x[1] or cal.y[0] == cal.y[1]:
+            return None
+        return cal
+
+
+# OSOYOO 3.5" B（install.sh の dtoverlay=osoyoo35b）の実測から推定。左右が逆で、0〜4095 の一部しか使わない。
+# 位置合わせ（オーナー画面 → 設定）をすると、その結果に置き換わる
+DEFAULT_CAL = TouchCal(swap=False, x=(3570, 250), y=(200, 3960))
+
+# 位置合わせで順にタップしてもらう画面上の点（左上 → 右上 → 左下）
+CAL_TARGETS: tuple[Point, ...] = ((40, 40), (440, 40), (40, 280))
+MIN_RAW_SPAN = 200  # 2 点の生の値がこれより近ければ、同じ所を押したとみなしてやり直す
+
+
+def solve_calibration(raws: list[Point], size: tuple[int, int] = (480, 320)) -> TouchCal:
+    """CAL_TARGETS を順に押したときの生の座標 3 つから TouchCal を求める。押し方がおかしければ ValueError。"""
+    if len(raws) != len(CAL_TARGETS):
+        raise ValueError("3 点が必要です")
+    (sx0, sy0), (sx1, _), (_, sy2) = CAL_TARGETS
+    r0, r1, r2 = raws
+    # 左上 → 右上 は画面の横移動。生の値で大きく動いた軸が画面の X
+    swap = abs(r1[1] - r0[1]) > abs(r1[0] - r0[0])
+    ax = 1 if swap else 0
+    ay = 1 - ax
+    dx, dy = r1[ax] - r0[ax], r2[ay] - r0[ay]
+    if abs(dx) < MIN_RAW_SPAN or abs(dy) < MIN_RAW_SPAN:
+        raise ValueError("タップの位置が近すぎます")
     w, h = size
-    return (round(min(1.0, max(0.0, fx)) * (w - 1)), round(min(1.0, max(0.0, fy)) * (h - 1)))
+    kx, ky = dx / (sx1 - sx0), dy / (sy2 - sy0)  # 画面 1px あたりの生の値
+    x = (round(r0[ax] - sx0 * kx), round(r0[ax] + (w - 1 - sx0) * kx))
+    y = (round(r0[ay] - sy0 * ky), round(r0[ay] + (h - 1 - sy0) * ky))
+    return TouchCal(swap, x, y)
 
 
 class TouchTracker:
-    """タッチパネルの生のイベント（座標・押下・解放）から、ジェスチャと触れた位置を作る。
+    """タッチパネルの生のイベント（座標・押下・解放）から、ジェスチャ・画面の位置・生の座標を作る。
 
     Linux の入力層は前回と同じ（または誤差内の）座標を送らないので、押下ごとに座標を消さず、
     最後に受け取った座標を使う。同じボタンを続けて押したときに位置が分からなくなるのを防ぐ。
     """
 
-    def __init__(
-        self,
-        size: tuple[int, int],
-        ranges: tuple[tuple[int, int], tuple[int, int]],
-        orient: dict[str, bool] | None = None,
-        classifier: TouchClassifier | None = None,
-    ):
-        self.size, self.ranges, self.orient = size, ranges, orient or {}
+    def __init__(self, size: tuple[int, int], cal: TouchCal, classifier: TouchClassifier | None = None):
+        self.size, self.cal = size, cal
         self.c = classifier or TouchClassifier()
         self.raw = [0, 0]
         self._has_pos = False
@@ -123,65 +158,59 @@ class TouchTracker:
     def abs_y(self, v: int) -> None:
         self.raw[1], self._has_pos = v, True
 
-    def pos(self) -> Point | None:
-        if not self._has_pos:
+    def _result(self, g: Gesture | None) -> TouchResult | None:
+        if g is None:
             return None
-        return map_touch(
-            *self.raw, x_range=self.ranges[0], y_range=self.ranges[1], size=self.size, **self.orient
-        )
+        if not self._has_pos:
+            return (g, None, None)
+        raw = (self.raw[0], self.raw[1])
+        return (g, self.cal.map(*raw, size=self.size), raw)
 
     def down(self, t: float) -> None:
         self.c.press(t)
 
-    def up(self, t: float) -> tuple[Gesture, Point | None] | None:
-        g = self.c.release(t)
-        return (g, self.pos()) if g else None
+    def up(self, t: float) -> TouchResult | None:
+        return self._result(self.c.release(t))
 
-    def tick(self, t: float) -> tuple[Gesture, Point | None] | None:
-        g = self.c.tick(t)
-        return (g, self.pos()) if g else None
+    def tick(self, t: float) -> TouchResult | None:
+        return self._result(self.c.tick(t))
 
 
 class EvdevTouchSource:  # pragma: no cover - 実機（evdev）でのみ動く
-    """evdev のイベントを TouchTracker に流し、ジェスチャと触れた位置をコールバックする。
-
-    orient は map_touch の向き補正（swap_xy / invert_x / invert_y）。
-    """
+    """evdev のイベントを TouchTracker に流し、(ジェスチャ, 画面の位置, 生の座標) をコールバックする。"""
 
     def __init__(
         self,
         device_path: str,
-        on_gesture: Callable[[Gesture, Point | None], None],
+        on_touch: Callable[[Gesture, Point | None, Point | None], None],
+        cal: TouchCal = DEFAULT_CAL,
         tick_sec: float = 0.05,
         size: tuple[int, int] = (480, 320),
-        orient: dict[str, bool] | None = None,
     ):
         self.device_path = device_path
-        self.on_gesture = on_gesture
+        self.on_touch = on_touch
         self.tick_sec = tick_sec
-        self.size = size
-        self.orient = orient or {}
-        self.t: TouchTracker | None = None
+        self.t = TouchTracker(size, cal)
         self._lock = threading.Lock()  # イベント受信とタイマーの 2 スレッドから触る
+
+    def set_calibration(self, cal: TouchCal) -> None:
+        with self._lock:
+            self.t.cal = cal
 
     def start(self) -> None:
         threading.Thread(target=self._events, name="touch", daemon=True).start()
         threading.Thread(target=self._ticker, name="touch-tick", daemon=True).start()
 
-    def _emit(self, r: tuple[Gesture, Point | None] | None) -> None:
-        if r and self.t:
-            log.info("touch %s raw=%s screen=%s", r[0].value, tuple(self.t.raw), r[1])  # 向きの確認用
-            self.on_gesture(*r)
+    def _emit(self, r: TouchResult | None) -> None:
+        if r:
+            log.info("touch %s raw=%s screen=%s", r[0].value, r[2], r[1])  # 位置合わせの確認用
+            self.on_touch(*r)
 
     def _events(self) -> None:
         import evdev
 
         dev = evdev.InputDevice(self.device_path)
-        absinfo = dict(dev.capabilities().get(evdev.ecodes.EV_ABS, []))
-        ax, ay = absinfo.get(evdev.ecodes.ABS_X), absinfo.get(evdev.ecodes.ABS_Y)
-        ranges = ((ax.min, ax.max), (ay.min, ay.max)) if ax and ay else ((0, 4095), (0, 4095))
-        log.info("touch device %s ranges=%s orient=%s", self.device_path, ranges, self.orient)
-        self.t = TouchTracker(self.size, ranges, self.orient)
+        log.info("touch device %s cal=%s", self.device_path, self.t.cal)
         for ev in dev.read_loop():
             r = None
             with self._lock:
@@ -200,7 +229,7 @@ class EvdevTouchSource:  # pragma: no cover - 実機（evdev）でのみ動く
         while True:
             time.sleep(self.tick_sec)
             with self._lock:
-                r = self.t.tick(time.monotonic()) if self.t and self.t.c.pressed else None
+                r = self.t.tick(time.monotonic()) if self.t.c.pressed else None
             self._emit(r)
 
 

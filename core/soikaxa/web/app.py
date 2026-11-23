@@ -115,6 +115,7 @@ class AppContext:
     run_update: Callable[[], bool] = lambda: False
     upgrader: Upgrader | None = None  # None = ソフトウェア更新に未対応（開発 PC など）
     on_ap_change: Callable[[], None] = lambda: None
+    start_touch_calibration: Callable[[], bool] = lambda: False  # False = タッチパネルが無い
     extra_hosts: frozenset[str] = frozenset()
     secure_cookies: bool = False  # 端末 AP は http のみ
     setup_code: SetupCode = field(default_factory=SetupCode)
@@ -475,6 +476,12 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.get("/api/owner/settings", dependencies=owner)
     def owner_settings() -> dict[str, Any]:
         return settings_json()
+
+    @app.post("/api/owner/touch/calibrate", dependencies=owner)
+    def owner_touch_calibrate() -> dict[str, bool]:
+        if not ctx.start_touch_calibration():
+            raise _err(409, "no_touch", "タッチパネルが見つかりません")
+        return {"ok": True}
 
     @app.patch("/api/owner/settings", dependencies=owner)
     def owner_settings_patch(body: s.SettingsPatch) -> dict[str, Any]:

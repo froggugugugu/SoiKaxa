@@ -179,6 +179,9 @@
       <label class="chk"><input id="cRepeat" type="checkbox"> プレイリストをくり返し再生（最後の曲のあと最初に戻る）</label>
       <label><small>1 人あたりのキュー上限</small><input id="cLimit" type="number" min="1" max="20"></label>
       <div class="row"><button id="cSave" class="primary">保存</button></div>
+      <h2>タッチの位置合わせ</h2>
+      <p class="sub">本体の表示切替ボタンが押しにくい・違う場所で反応するときに。始めると本体の画面に「＋」が 3 か所順に出るので、指先でその中心を押してください（1 分押さなければ元に戻ります）。</p>
+      <button id="touchCal">位置合わせを始める</button>
       <h2>ソフトウェア更新</h2>
       <p class="sub" id="upInfo">—</p>
       <p class="notice" id="upMsg" aria-live="polite"></p>
@@ -538,6 +541,7 @@ $("upGo").onclick = () => guard(async () => {
   if (!r.ok) toast((r.status && r.status.message) || "更新を開始できません");
   showUpgrade(await api("GET", "/api/owner/upgrade"));
 });
+$("touchCal").onclick = () => guard(async () => { await api("POST", "/api/owner/touch/calibrate"); toast("本体の画面の「＋」を順に押してください"); });
 $("cSave").onclick = () => guard(async () => { await api("PATCH", "/api/owner/settings", { guest_enabled: $("cGuest").checked, allow_play_next: $("cNext").checked, autoplay: $("cAuto").checked, repeat: $("cRepeat").checked, guest_queue_limit: +$("cLimit").value }); toast("保存しました"); refresh(); });
 $("resetBtn").onclick = () => guard(async () => { if (prompt("初期化するには RESET と入力") !== "RESET") return; await api("POST", "/api/owner/reset", { confirm: "RESET" }); csrf = null; toast("初期化しました"); refresh(); });
 $("logout").onclick = () => guard(async () => { await api("POST", "/api/owner/logout"); csrf = null; location.hash = ""; refresh(); });

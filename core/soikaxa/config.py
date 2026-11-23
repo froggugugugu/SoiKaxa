@@ -63,6 +63,7 @@ class Settings:
     last_playlist: LastPlaylist | None = None
     autoplay: bool = True
     repeat: bool = True  # プレイリストの最後の曲のあと先頭に戻る
+    touch_cal: dict[str, Any] | None = None  # LCD のタッチの位置合わせ結果（touch.TouchCal.to_dict）
     volume: int = 60
     guest_enabled: bool = True
     allow_play_next: bool = True

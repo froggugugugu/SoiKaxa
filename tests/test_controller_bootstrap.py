@@ -12,6 +12,8 @@ from soikaxa.lcd import screens
 from soikaxa.lcd.controller import (
     AUTO_DISC_SEC,
     AUTO_LIST_SEC,
+    CAL_DONE_SEC,
+    CAL_TIMEOUT_SEC,
     LIST_ADDED_SEC,
     MSG_NO_SPEAKER,
     CoverLoader,
@@ -21,7 +23,7 @@ from soikaxa.lcd.fb import Framebuffer
 from soikaxa.player import MpvPlayer
 from soikaxa.runner import CommandResult
 from soikaxa.state import Event
-from soikaxa.touch import Gesture
+from soikaxa.touch import DEFAULT_CAL, Gesture, TouchCal
 
 
 class Src:
@@ -501,7 +503,70 @@ def test_list_without_upcoming_is_empty(lcd):
     assert c.view()[1].queue_rows == ()  # 「次の曲はありません」を出す
 
 
-def test_touch_orientation_from_env():
-    assert bootstrap.touch_orientation({}) == {"swap_xy": False, "invert_x": False, "invert_y": False}
-    env = {"SOIKAXA_TOUCH_SWAP_XY": "1", "SOIKAXA_TOUCH_INVERT_Y": "1", "SOIKAXA_TOUCH_INVERT_X": "0"}
-    assert bootstrap.touch_orientation(env) == {"swap_xy": True, "invert_x": False, "invert_y": True}
+def test_touch_cal_default_and_saved(rt):
+    assert bootstrap.load_touch_cal(rt.store) == DEFAULT_CAL
+    cal = TouchCal(True, (100, 3900), (3800, 200))
+    rt.store.update(touch_cal=cal.to_dict())
+    assert bootstrap.load_touch_cal(rt.store) == cal
+    rt.store.update(touch_cal={"broken": 1})
+    assert bootstrap.load_touch_cal(rt.store) == DEFAULT_CAL  # 壊れていたら既定値
+
+
+def test_on_touch_routes_to_calibration_and_saves(rt):
+    _music(rt, n=2)
+    rt.service.select_playlist("Mix", "local")
+    applied, cal = [], TouchCal(False, (3500, 300), (250, 3900))
+
+    class Lcd:
+        calibrating = True
+        taps = []
+
+        def calibration_tap(self, raw):
+            self.taps.append(raw)
+            return cal if len(self.taps) == 3 else None
+
+        def hits_mode_button(self, pos):
+            return False
+
+        def cycle_mode(self):
+            pass
+
+    lcd = Lcd()
+    for raw in [(1, 1), (2, 2)]:
+        bootstrap.on_touch(rt, Gesture.TOGGLE, (5, 5), raw, lambda: None, lcd=lcd, apply_cal=applied.append)
+    bootstrap.on_touch(rt, Gesture.NEXT, (5, 5), (9, 9), lambda: None, lcd=lcd, apply_cal=applied.append)
+    assert lcd.taps == [(1, 1), (2, 2)] and not rt.service.status().paused  # 位置合わせ中は再生操作しない
+    bootstrap.on_touch(rt, Gesture.TAP, (5, 5), (3, 3), lambda: None, lcd=lcd, apply_cal=applied.append)
+    assert applied == [cal] and bootstrap.load_touch_cal(rt.store) == cal
+    lcd.calibrating = False
+    bootstrap.on_touch(rt, Gesture.TOGGLE, (5, 5), (3, 3), lambda: None, lcd=lcd, apply_cal=applied.append)
+    assert rt.service.status().paused  # 位置合わせ後はふつうのタップ
+
+
+CAL_RAWS = [(3280, 670), (520, 670), (3280, 3490)]  # 左上 → 右上 → 左下（左右が逆のパネル）
+
+
+def test_touch_calibration_flow(lcd):
+    c, svc, fb, jobs, clock = _playing(lcd)
+    c.start_calibration()
+    assert c.calibrating and c.compose()[0] == "calibrate"
+    assert c.calibration_tap(CAL_RAWS[0]) is None and c.calibration_step == 1
+    assert c.calibration_tap(CAL_RAWS[1]) is None and c.calibration_step == 2
+    before = c.compose()[1].tobytes()
+    cal = c.calibration_tap(CAL_RAWS[2])
+    assert isinstance(cal, TouchCal) and not cal.swap and cal.x[0] > cal.x[1]  # 左右が逆と分かる
+    assert not c.calibrating and c.compose()[0] == "calibrate"  # 「保存しました」を少し出す
+    assert c.compose()[1].tobytes() != before
+    clock.t += CAL_DONE_SEC + 1
+    assert c.compose()[0] == "now"
+
+
+def test_touch_calibration_retry_and_timeout(lcd):
+    c, svc, fb, jobs, clock = _playing(lcd)
+    c.start_calibration()
+    for _ in range(3):
+        assert c.calibration_tap((1000, 1000)) is None  # 同じ所を 3 回 → やり直し
+    assert c.calibrating and c.calibration_step == 0 and "もう一度" in c.calibration_message
+    clock.t += CAL_TIMEOUT_SEC + 1
+    assert not c.calibrating and c.compose()[0] == "now"  # 放置したら元の画面に戻る
+    assert c.calibration_tap((1, 1)) is None

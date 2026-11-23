@@ -664,3 +664,14 @@ def test_guest_can_cancel_only_own_items(env):
     assert client.delete(f"/api/queue/{mine}").status_code == 200
     assert [i.item_id for i in ctx.service.queue.items()] == [theirs]
     assert client.delete(f"/api/queue/{mine}").status_code == 404  # 二重の取り消し
+
+
+def test_owner_starts_touch_calibration(env):
+    client, ctx, *_ = env
+    assert client.post("/api/owner/touch/calibrate").status_code in (401, 403)  # オーナーだけ
+    h = login(client)
+    r = client.post("/api/owner/touch/calibrate", headers=h)
+    assert r.status_code == 409 and "タッチパネル" in r.json()["detail"]["message"]  # 開発 PC など
+    started = []
+    ctx.start_touch_calibration = lambda: started.append(1) or True
+    assert client.post("/api/owner/touch/calibrate", headers=h).status_code == 200 and started == [1]

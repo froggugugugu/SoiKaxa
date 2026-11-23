@@ -3,7 +3,15 @@ from soikaxa import bt, health
 from soikaxa.adapters.base import AdapterError, Resolved
 from soikaxa.fakes import FakeRunner
 from soikaxa.runner import CommandResult
-from soikaxa.touch import Gesture, TouchClassifier, TouchTracker, map_touch
+from soikaxa.touch import (
+    CAL_TARGETS,
+    DEFAULT_CAL,
+    Gesture,
+    TouchCal,
+    TouchClassifier,
+    TouchTracker,
+    solve_calibration,
+)
 
 MAC = "AA:BB:CC:DD:EE:FF"
 DEVICES = (
@@ -150,20 +158,58 @@ def test_short_touch_is_tap_not_toggle():
     assert c.release(1.03) is None  # 0.05 秒未満はノイズ
 
 
+FULL = TouchCal(swap=False, x=(0, 4095), y=(0, 4095))
+
+
 @pytest.mark.parametrize(
-    ("raw", "opts", "want"),
+    ("cal", "raw", "want"),
     [
-        ((0, 0), {}, (0, 0)),
-        ((4095, 4095), {}, (479, 319)),
-        ((2048, 1024), {}, (240, 80)),
-        ((4095, 0), {"invert_x": True}, (0, 0)),
-        ((0, 4095), {"invert_y": True}, (0, 0)),
-        ((4095, 0), {"swap_xy": True}, (0, 319)),  # 生の X が画面の縦になる
-        ((-50, 5000), {}, (0, 319)),  # 範囲外は端に丸める
+        (FULL, (0, 0), (0, 0)),
+        (FULL, (4095, 4095), (479, 319)),
+        (FULL, (2048, 1024), (240, 80)),
+        (TouchCal(False, (4095, 0), (0, 4095)), (4095, 0), (0, 0)),  # 左右が逆
+        (TouchCal(True, (0, 4095), (0, 4095)), (4095, 0), (0, 319)),  # 生の X が画面の縦
+        (FULL, (-50, 5000), (0, 319)),  # 範囲外は端に丸める
     ],
 )
-def test_map_touch(raw, opts, want):
-    assert map_touch(*raw, x_range=(0, 4095), y_range=(0, 4095), size=(480, 320), **opts) == want
+def test_touch_cal_map(cal, raw, want):
+    assert cal.map(*raw, size=(480, 320)) == want
+
+
+def _raws_for(cal_like):
+    """画面の座標 → 生の座標（テスト用に校正の逆算をする）。"""
+    swap, (x0, x1), (y0, y1) = cal_like
+    out = []
+    for sx, sy in CAL_TARGETS:
+        rx = round(x0 + (x1 - x0) * sx / 479)
+        ry = round(y0 + (y1 - y0) * sy / 319)
+        out.append((ry, rx) if swap else (rx, ry))
+    return out
+
+
+@pytest.mark.parametrize("truth", [(False, (3570, 250), (200, 3960)), (True, (300, 3800), (3900, 150))])
+def test_solve_calibration_recovers_orientation_and_range(truth):
+    cal = solve_calibration(_raws_for(truth))
+    assert cal.swap == truth[0]
+    for got, want in ((cal.x, truth[1]), (cal.y, truth[2])):
+        assert all(abs(g - w) <= 2 for g, w in zip(got, want, strict=True))
+    for (sx, sy), raw in zip(CAL_TARGETS, _raws_for(truth), strict=True):
+        px, py = cal.map(*raw, size=(480, 320))
+        assert abs(px - sx) <= 1 and abs(py - sy) <= 1
+
+
+def test_solve_calibration_rejects_bad_taps():
+    with pytest.raises(ValueError):
+        solve_calibration([(1000, 1000), (1010, 1005), (1000, 1010)])  # 同じ所を 3 回
+    with pytest.raises(ValueError):
+        solve_calibration([(1000, 1000)])
+
+
+def test_touch_cal_dict_roundtrip_and_validation():
+    assert TouchCal.from_dict(DEFAULT_CAL.to_dict()) == DEFAULT_CAL
+    for bad in (None, {}, {"swap": False, "x": [1, 1], "y": [0, 10]}, {"swap": "x", "x": "ab", "y": [0, 1]}):
+        assert TouchCal.from_dict(bad) is None
+    assert DEFAULT_CAL.map(800, 3500, size=(480, 320))[0] > 388  # 右下のボタンに当たる（ログの実測値）
 
 
 def test_tap_toggles():
@@ -214,23 +260,15 @@ def test_bt_remove():
 
 def test_tracker_reuses_last_position_when_panel_sends_no_new_coordinates():
     """同じ所を続けて押すと、Linux の入力層は前回と同じ座標を送らない。前回の座標を使う（ボタンの連打）。"""
-    t = TouchTracker(size=(480, 320), ranges=((0, 4095), (0, 4095)))
+    t = TouchTracker(size=(480, 320), cal=FULL)
     t.down(0.0)
-    assert t.up(0.1) == (Gesture.TAP, None)  # まだ一度も座標が来ていない
+    assert t.up(0.1) == (Gesture.TAP, None, None)  # まだ一度も座標が来ていない
     t.down(1.0)
     t.abs_x(3800)
     t.abs_y(3500)
-    g, pos = t.up(1.1)
-    assert g == Gesture.TAP and pos == (444, 273)
+    assert t.up(1.1) == (Gesture.TAP, (444, 273), (3800, 3500))
     t.down(2.0)  # 座標イベントなし（同じ位置）
-    assert t.up(2.4) == (Gesture.TOGGLE, (444, 273))
-
-
-def test_tracker_applies_orientation():
-    t = TouchTracker(
-        size=(480, 320), ranges=((0, 4095), (0, 4095)), orient={"swap_xy": True, "invert_y": True}
-    )
-    t.down(0.0)
-    t.abs_x(0)
-    t.abs_y(4095)
-    assert t.up(0.1) == (Gesture.TAP, (479, 319))
+    assert t.up(2.4) == (Gesture.TOGGLE, (444, 273), (3800, 3500))
+    t.cal = TouchCal(False, (4095, 0), (0, 4095))  # 位置合わせの結果は次のタッチから効く
+    t.down(3.0)
+    assert t.up(3.1)[1] == (35, 273)

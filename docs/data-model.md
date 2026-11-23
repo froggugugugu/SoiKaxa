@@ -20,6 +20,7 @@
 | `last_playlist` | {adapter, id} \| null | 自動再生用 |
 | `autoplay` | bool | 既定 true |
 | `repeat` | bool | 既定 true。プレイリストの最後の曲のあと先頭に戻る（キューの曲は流れたら消える） |
+| `touch_cal` | {swap, x: [左端, 右端], y: [上端, 下端]} \| null | LCD タッチの位置合わせ結果（生の値）。null・壊れた値はパネルの既定値（`touch.DEFAULT_CAL`） |
 | `volume` | int | 0〜100 に丸める |
 | `guest_enabled` / `allow_play_next` | bool | 既定 true |
 | `guest_queue_limit` | int | 1〜20 に丸める。既定 3 |

@@ -201,6 +201,36 @@ def render_error(message: str, qr_payload: str, code: str | None = None) -> Imag
     return img
 
 
+def render_calibration(
+    target: tuple[int, int] | None, step: int, total: int, message: str = ""
+) -> Image.Image:
+    """タッチの位置合わせ。target に＋印を出し、その中心を押してもらう。target が None なら完了表示。"""
+    img, d = _canvas()
+    if target is not None:
+        x, y = target
+        d.line((x - 18, y, x + 18, y), fill=MAGENTA, width=3)
+        d.line((x, y - 18, x, y + 18), fill=MAGENTA, width=3)
+        d.ellipse((x - 8, y - 8, x + 8, y + 8), outline=CYAN, width=2)
+        d.text((WIDTH // 2, 130), "タッチの位置合わせ", font=font(22), fill=FG, anchor="mm")
+        d.text(
+            (WIDTH // 2, 166),
+            f"＋ の中心を押してください（{step + 1}/{total}）",
+            font=font(16),
+            fill=CYAN,
+            anchor="mm",
+        )
+    if message:
+        color = CYAN if target is None else MAGENTA
+        d.text(
+            (WIDTH // 2, 210 if target is not None else HEIGHT // 2),
+            fit_text(message, font(16), WIDTH - 40),
+            font=font(16),
+            fill=color,
+            anchor="mm",
+        )
+    return img
+
+
 def render_setup_full(qr_payload: str, caption: str = "設定用 QR", code: str | None = None) -> Image.Image:
     img, d = _canvas()
     img.paste(make_qr(qr_payload, 280), ((WIDTH - 280) // 2 - 60, 20))

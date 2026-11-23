@@ -11,7 +11,7 @@ import os
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -28,7 +28,7 @@ from .player import MpvPlayer, MpvTransport
 from .portal import PORTAL_URL
 from .runner import CommandResult, CommandRunner, SubprocessRunner
 from .state import Event, State
-from .touch import Gesture
+from .touch import DEFAULT_CAL, Gesture, TouchCal
 from .watchdog import Watchdog, notify
 
 log = logging.getLogger("soikaxa")
@@ -151,15 +151,42 @@ def connect_speaker(rt: Runtime) -> bool:
     return True
 
 
-def touch_orientation(env: Mapping[str, str]) -> dict[str, bool]:
-    """タッチの向き補正。SOIKAXA_TOUCH_SWAP_XY / _INVERT_X / _INVERT_Y を "1" にすると有効。"""
-    keys = {"swap_xy": "SWAP_XY", "invert_x": "INVERT_X", "invert_y": "INVERT_Y"}
-    return {k: env.get(f"SOIKAXA_TOUCH_{v}") == "1" for k, v in keys.items()}
+def load_touch_cal(store: SettingsStore) -> TouchCal:
+    """保存済みの位置合わせ結果。無いか壊れていればパネルの既定値。"""
+    return TouchCal.from_dict(store.load().touch_cal) or DEFAULT_CAL
 
 
 class ModeButton(Protocol):
     def hits_mode_button(self, pos: tuple[int, int] | None) -> bool: ...
     def cycle_mode(self) -> None: ...
+
+
+class TouchScreen(ModeButton, Protocol):
+    @property
+    def calibrating(self) -> bool: ...
+    def calibration_tap(self, raw: tuple[int, int] | None) -> TouchCal | None: ...
+
+
+def on_touch(
+    rt: Runtime,
+    gesture: Gesture,
+    pos: tuple[int, int] | None,
+    raw: tuple[int, int] | None,
+    show_setup: Callable[[], None],
+    unlock: Callable[[], None] = lambda: None,
+    lcd: TouchScreen | None = None,
+    apply_cal: Callable[[TouchCal], None] = lambda c: None,
+) -> None:
+    """タッチパネルからの入力。位置合わせ中はタップを LCD に渡し、それ以外は on_gesture。"""
+    if lcd is not None and lcd.calibrating:
+        if gesture in (Gesture.TAP, Gesture.TOGGLE):  # 長押しは無視（再生操作をしない）
+            cal = lcd.calibration_tap(raw)
+            if cal is not None:
+                rt.store.update(touch_cal=cal.to_dict())
+                apply_cal(cal)
+                log.info("touch calibrated: %s", cal)
+        return
+    on_gesture(rt, gesture, show_setup, unlock, pos=pos, lcd=lcd)
 
 
 def on_gesture(
@@ -246,13 +273,25 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
     threading.Thread(target=_monitor, args=(rt,), name="monitor", daemon=True).start()
 
     touch_dev = None if rt.fake else find_touch_device()
+    touch: EvdevTouchSource | None = None
     if touch_dev:
         show = lcd.show_setup_qr if lcd else (lambda: None)
-        EvdevTouchSource(
-            touch_dev,
-            lambda g, pos: on_gesture(rt, g, show, pin_guard.reset, pos=pos, lcd=lcd),
-            orient=touch_orientation(os.environ),
-        ).start()
+
+        def apply_cal(cal: TouchCal) -> None:
+            if touch is not None:
+                touch.set_calibration(cal)  # 次のタッチから新しい位置合わせで判定する
+
+        def handle(g: Gesture, pos: tuple[int, int] | None, raw: tuple[int, int] | None) -> None:
+            on_touch(rt, g, pos, raw, show, pin_guard.reset, lcd=lcd, apply_cal=apply_cal)
+
+        touch = EvdevTouchSource(touch_dev, handle, cal=load_touch_cal(rt.store))
+        touch.start()
+
+    def start_touch_calibration() -> bool:
+        if touch is None or lcd is None:
+            return False
+        lcd.start_calibration()
+        return True
 
     def run_update() -> bool:
         unit = os.environ.get("SOIKAXA_UPDATE_UNIT")  # soikaxa@.service が設定する
@@ -293,6 +332,7 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
         run_update=run_update,
         upgrader=upgrader,
         on_ap_change=(lcd.invalidate if lcd else lambda: None),
+        start_touch_calibration=start_touch_calibration,
         extra_hosts=frozenset({os.uname().nodename.lower(), f"{os.uname().nodename.lower()}.local"}),
     )
     app = create_app(ctx)

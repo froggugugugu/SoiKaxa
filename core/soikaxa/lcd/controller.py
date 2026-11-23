@@ -15,6 +15,7 @@ from PIL import Image
 
 from ..daemon import PlayerService, TrackView
 from ..state import State
+from ..touch import CAL_TARGETS, Point, TouchCal, solve_calibration
 from .fb import Framebuffer, to_rgb565
 from .record import DIAMETER, RecordFrames, record_disc
 from .screens import (
@@ -23,6 +24,7 @@ from .screens import (
     NowPlayingView,
     QueueRow,
     render_boot,
+    render_calibration,
     render_error,
     render_now_playing,
     render_setup,
@@ -38,6 +40,9 @@ MODES = ("disc", "list", "auto")
 AUTO_DISC_SEC = 20.0
 AUTO_LIST_SEC = 8.0
 LIST_ADDED_SEC = 10.0
+# タッチの位置合わせ: 放置したら元の画面に戻る。完了の表示は少しだけ出す
+CAL_TIMEOUT_SEC = 60.0
+CAL_DONE_SEC = 3.0
 FPS = 8
 MSG_NO_SPEAKER = "スピーカーが見つかりません"
 
@@ -102,6 +107,10 @@ class LcdController:
         self._last_screen: str = ""
         self._showing_list = False
         self._last_list = False  # 直前の全面描画が左側リストだったか（レコードを上書きしない）
+        self._cal_raws: list[Point] | None = None  # 位置合わせ中なら、これまでにタップされた生の座標
+        self._cal_until = 0.0
+        self._cal_done_until = 0.0
+        self.calibration_message = ""
         self._mode = "disc"  # ボタンで選んだ表示モード
         self._cycle_start = clock()  # 自動モードの起点（レコードから始める）
         self._added_until = 0.0
@@ -126,6 +135,8 @@ class LcdController:
         """(画面名, 通常画面の内容)。通常画面以外では内容は None。"""
         if self._setup_active:
             return "setup_full", None
+        if self.calibrating or self.clock() < self._cal_done_until:
+            return "calibrate", None
         st = self.svc.status()
         code = self.setup_code()
         # 曲が流れている間は、状態機械がどの状態でも通常画面を出す
@@ -194,6 +205,43 @@ class LcdController:
         self._cycle_start = self.clock()
         self.invalidate()
 
+    # ---- タッチの位置合わせ ----
+    @property
+    def calibrating(self) -> bool:
+        return self._cal_raws is not None and self.clock() < self._cal_until
+
+    @property
+    def calibration_step(self) -> int:
+        return len(self._cal_raws or [])
+
+    def start_calibration(self) -> None:
+        """LCD に＋印を順に出す。タップは calibration_tap で受け取る。"""
+        self._cal_raws = []
+        self._cal_until = self.clock() + CAL_TIMEOUT_SEC
+        self._cal_done_until = 0.0
+        self.calibration_message = ""
+        self.invalidate()
+
+    def calibration_tap(self, raw: Point | None) -> TouchCal | None:
+        """位置合わせ中のタップ（生の座標）。3 点そろったら結果を返す。押し方がおかしければやり直し。"""
+        if not self.calibrating or raw is None or self._cal_raws is None:
+            return None
+        self._cal_raws.append(raw)
+        self._cal_until = self.clock() + CAL_TIMEOUT_SEC
+        self.invalidate()
+        if len(self._cal_raws) < len(CAL_TARGETS):
+            return None
+        try:
+            cal = solve_calibration(self._cal_raws)
+        except ValueError:
+            self._cal_raws = []
+            self.calibration_message = "うまく取れませんでした。もう一度＋の中心を押してください"
+            return None
+        self._cal_raws = None
+        self._cal_done_until = self.clock() + CAL_DONE_SEC
+        self.calibration_message = "位置合わせを保存しました"
+        return cal
+
     def hits_mode_button(self, pos: tuple[int, int] | None) -> bool:
         """触れた位置がモードボタン（アイコン含む）か。ボタンを出している画面（通常画面）のときだけ True。"""
         if pos is None or self._last_screen != "now" or self._setup_active:
@@ -207,6 +255,10 @@ class LcdController:
         qr, code = self.qr_payload(), self.setup_code()
         if name == "setup_full":
             return name, render_setup_full(qr, code=code)
+        if name == "calibrate":
+            step = self.calibration_step if self.calibrating else None
+            target = CAL_TARGETS[step] if step is not None else None
+            return name, render_calibration(target, step or 0, len(CAL_TARGETS), self.calibration_message)
         if name == "boot":
             return name, render_boot(self.boot_progress)
         if name == "setup":
