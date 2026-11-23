@@ -24,6 +24,7 @@ class NowPlayingView:
     guest_qr: str = ""
     paused: bool = False
     notice: str = ""  # 例: 「音源側の変更で停止中」
+    hint: str = ""  # 待機中だけ: ブラウザで開く URL（アーティスト行に出す）
 
 
 def _canvas() -> tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -92,7 +93,10 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
     img.paste(disc or record_disc(None, view.title), RECORD_XY)
     x, w = 240, WIDTH - 250
     d.text((x, 20), fit_text(view.title or "—", font(24), w), font=font(24), fill=FG)
-    d.text((x, 54), fit_text(view.artist, font(18), w), font=font(18), fill=MUTED)
+    if view.hint:
+        d.text((x, 54), fit_text(view.hint, font(18), w), font=font(18), fill=CYAN)
+    else:
+        d.text((x, 54), fit_text(view.artist, font(18), w), font=font(18), fill=MUTED)
     # 進捗
     y = 88
     d.rectangle([x, y, x + w, y + 4], fill=(0x1C, 0x24, 0x2C))

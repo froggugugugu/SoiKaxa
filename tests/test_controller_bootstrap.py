@@ -1,3 +1,4 @@
+from dataclasses import replace
 from io import BytesIO
 
 import pytest
@@ -7,6 +8,7 @@ from soikaxa.adapters.base import Resolved, Track
 from soikaxa.config import SettingsStore, Speaker
 from soikaxa.daemon import PlayerService, TrackView
 from soikaxa.fakes import FakeTransport
+from soikaxa.lcd import screens
 from soikaxa.lcd.controller import MSG_NO_SPEAKER, CoverLoader, LcdController
 from soikaxa.lcd.fb import Framebuffer
 from soikaxa.player import MpvPlayer
@@ -368,3 +370,17 @@ def test_on_gesture_routes(rt):
     assert rt.service.status().now.title == "2"
     bootstrap.on_gesture(rt, Gesture.SETUP_QR, lambda: shown.append(1))
     assert shown == [1]
+
+
+def test_idle_screen_shows_access_url(lcd):
+    """待機中（曲なし）は、PC などから開けるようにオーナー画面の URL（AP の IP）を出す。"""
+    c, svc, *_ = lcd
+    for e in (Event.NET_DOWN, Event.FAIL, Event.RECOVER):
+        svc.dispatch(e)
+    name, view = c.view()
+    assert name == "now" and view.title == "待機中"
+    assert view.hint == "http://10.42.0.1/#owner"
+    without = screens.render_now_playing(replace(view, hint="")).tobytes()
+    assert c.compose()[1].tobytes() != without
+    svc.select_playlist("p")
+    assert c.view()[1].hint == ""  # 再生中はアーティスト名を出す

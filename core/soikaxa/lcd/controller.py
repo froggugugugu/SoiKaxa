@@ -138,6 +138,8 @@ class LcdController:
             guest_qr=self.qr_payload(),
             paused=st.paused,
             notice=notice,
+            # 待機中は PC からもたどり着けるよう、AP の IP でオーナー画面の URL を出す
+            hint="" if st.now else self.portal_url + "#owner",
         )
 
     def compose(self) -> tuple[str, Image.Image]:
