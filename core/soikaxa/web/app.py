@@ -328,6 +328,26 @@ def create_app(ctx: AppContext) -> FastAPI:
             raise _err(429, "limit", f"1 人 {st.guest_queue_limit} 曲までです") from e
         return {"item_id": item.item_id}
 
+    # ゲスト自身の取り消し。Cookie の無いゲスト（共通の "anonymous"）は誰の曲か区別できないので扱わない
+    @app.get("/api/queue/mine", dependencies=[Depends(require_guest_access)])
+    def my_queue(request: Request) -> dict[str, Any]:
+        gid = guest_id(request)
+        items = [i for i in svc.queue.items() if gid and i.guest_id == gid]
+        return {
+            "items": [{"item_id": i.item_id, "title": i.track.title, "added_by": i.added_by} for i in items]
+        }
+
+    @app.delete("/api/queue/{item_id}", dependencies=[Depends(require_guest_access)])
+    def cancel_my_item(item_id: str, request: Request) -> dict[str, bool]:
+        gid = guest_id(request)
+        try:
+            if not gid:
+                raise ItemNotFound(item_id)
+            svc.remove(item_id, gid)
+        except ItemNotFound as e:
+            raise _err(404, "not_found", "取り消せる曲が見つかりません") from e
+        return {"ok": True}
+
     # ---------- オーナー: 認証 ----------
     def locked(e: PinLocked) -> HTTPException:
         return _err(423, "locked", f"{int(e.retry_after)} 秒後に再試行（本体を 10 秒長押しで解除）")

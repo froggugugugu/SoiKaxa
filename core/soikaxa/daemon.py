@@ -250,8 +250,8 @@ class PlayerService:
         self._notify()
         return item
 
-    def remove(self, item_id: str) -> None:
-        self.queue.remove(item_id)
+    def remove(self, item_id: str, guest_id: str | None = None) -> None:
+        self.queue.remove(item_id, guest_id)
         self._notify()
 
     def move(self, item_id: str, index: int) -> None:

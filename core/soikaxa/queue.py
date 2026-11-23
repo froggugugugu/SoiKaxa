@@ -86,10 +86,11 @@ class PlayQueue:
         with self._lock:
             return sum(1 for i in self._items if i.guest_id == guest_id)
 
-    def remove(self, item_id: str) -> QueueItem:
+    def remove(self, item_id: str, guest_id: str | None = None) -> QueueItem:
+        """guest_id を渡すと、そのゲストが追加した曲だけを消す（他人の曲は ItemNotFound）。"""
         with self._lock:
             for i, it in enumerate(self._items):
-                if it.item_id == item_id:
+                if it.item_id == item_id and (guest_id is None or it.guest_id == guest_id):
                     return self._items.pop(i)
         raise ItemNotFound(item_id)
 

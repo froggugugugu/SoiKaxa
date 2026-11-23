@@ -640,3 +640,27 @@ def test_rate_limiter_window():
     for i in range(1002):
         rl.allow(f"k{i}")
     assert len(rl._hits) < 1000
+
+
+def test_guest_can_cancel_only_own_items(env):
+    """ゲストは自分が追加した曲だけ取り消せる。他人の曲や Cookie の無いゲストは 404。"""
+    client, ctx, *_ = env
+    other = TestClient(client.app, base_url="http://10.42.0.1")
+    for c in (client, other):
+        c.get("/api/status")  # ゲスト Cookie を受け取る
+    client.get("/api/search", params={"q": "hit"})
+    other.get("/api/search", params={"q": "hit"})
+    client.post("/api/queue", json={"track_id": "s1"})  # 再生が始まる（キューから消費される）
+    mine = client.post("/api/queue", json={"track_id": "s2", "name": "Aさん"}).json()["item_id"]
+    theirs = other.post("/api/queue", json={"track_id": "s3"}).json()["item_id"]
+    assert client.get("/api/queue/mine").json()["items"] == [
+        {"item_id": mine, "title": "Hit2", "added_by": "Aさん"}
+    ]
+    assert other.get("/api/queue/mine").json()["items"][0]["item_id"] == theirs
+    assert client.delete(f"/api/queue/{theirs}").status_code == 404  # 他人の曲は消せない
+    nocookie = TestClient(client.app, base_url="http://10.42.0.1")
+    assert nocookie.delete(f"/api/queue/{mine}").status_code == 404
+    assert nocookie.get("/api/queue/mine").json()["items"] == []
+    assert client.delete(f"/api/queue/{mine}").status_code == 200
+    assert [i.item_id for i in ctx.service.queue.items()] == [theirs]
+    assert client.delete(f"/api/queue/{mine}").status_code == 404  # 二重の取り消し

@@ -57,6 +57,11 @@
       <button class="primary" type="submit">検索</button>
     </form>
     <ul id="results"></ul>
+    <div id="mineBox" class="hidden">
+      <h2>あなたが追加した曲</h2>
+      <p class="sub">間違えたときは「取り消す」。この画面を閉じると取り消せなくなるので、そのときはオーナーに伝えてください。</p>
+      <ul id="mine"></ul>
+    </div>
     <label for="guestName"><small>名前（任意・20 文字まで）。本体の画面のリストに表示されます</small></label>
     <input id="guestName" maxlength="20" autocomplete="nickname" autocorrect="off" autocapitalize="off" spellcheck="false">
     <p class="sub">リンクを使うときは、<b>先にリンクをコピーしてから</b>本体の QR を読んでください。この画面はアプリを切り替えると閉じます。</p>
@@ -237,6 +242,7 @@ async function refresh() {
     $("guestClosed").classList.toggle("hidden", s.guest_enabled || s.is_owner);
     $("guestLimit").textContent = String(s.guest_queue_limit ?? 3);
     route();
+    if (location.hash !== "#owner" && s.guest_enabled) loadMine();
   } catch (e) { $("notice").textContent = "端末に接続できません"; }
 }
 
@@ -265,6 +271,31 @@ $("searchForm").onsubmit = async (ev) => {
 };
 async function openPlaylist(id) {
   try { renderResults((await api("GET", "/api/search/playlists/" + encodeURIComponent(id))).results); } catch (e) { toast(e.message); }
+}
+async function loadMine() { // 自分が追加してまだ流れていない曲。取り消しボタン付き
+  try {
+    const r = await api("GET", "/api/queue/mine"), ul = $("mine");
+    const key = r.items.map((it) => it.item_id).join(",");
+    if (key === loadMine.key) return; // 変化なし。押しかけの「取り消す」を 5 秒ごとの更新で消さない
+    loadMine.key = key; ul.replaceChildren();
+    $("mineBox").classList.toggle("hidden", !r.items.length);
+    for (const it of r.items) {
+      const li = el("li"); li.append(el("div", it.title, { class: "grow" }));
+      // 専用ブラウザでは confirm() が出ないことがあるので、2 回押しで確定する
+      const b = btn("取り消す", async () => {
+        if (!b.dataset.armed) {
+          b.dataset.armed = "1"; b.textContent = "もう一度押すと取り消し";
+          setTimeout(() => { delete b.dataset.armed; b.textContent = "取り消す"; }, 3000);
+          return;
+        }
+        try { await api("DELETE", "/api/queue/" + encodeURIComponent(it.item_id)); toast("取り消しました"); }
+        catch (e) { toast(e.message); }
+        refresh();
+      }, "warn");
+      li.append(b);
+      ul.append(li);
+    }
+  } catch (e) { /* 一覧が取れなくても他の操作は続けられる */ }
 }
 async function enqueue(id, next) {
   try { await api("POST", "/api/queue", { track_id: id, name: $("guestName").value.trim(), play_next: next }); toast(next ? "次に流します" : "キューに追加しました"); refresh(); }
