@@ -3,7 +3,7 @@ from soikaxa import bt, health
 from soikaxa.adapters.base import AdapterError, Resolved
 from soikaxa.fakes import FakeRunner
 from soikaxa.runner import CommandResult
-from soikaxa.touch import Gesture, TouchClassifier, map_touch
+from soikaxa.touch import Gesture, TouchClassifier, TouchTracker, map_touch
 
 MAC = "AA:BB:CC:DD:EE:FF"
 DEVICES = (
@@ -210,3 +210,27 @@ def test_bt_remove():
     r = bt_runner()
     assert bt.BluetoothManager(r).remove(MAC.lower())
     assert r.calls[-1] == ["bluetoothctl", "remove", MAC]
+
+
+def test_tracker_reuses_last_position_when_panel_sends_no_new_coordinates():
+    """同じ所を続けて押すと、Linux の入力層は前回と同じ座標を送らない。前回の座標を使う（ボタンの連打）。"""
+    t = TouchTracker(size=(480, 320), ranges=((0, 4095), (0, 4095)))
+    t.down(0.0)
+    assert t.up(0.1) == (Gesture.TAP, None)  # まだ一度も座標が来ていない
+    t.down(1.0)
+    t.abs_x(3800)
+    t.abs_y(3500)
+    g, pos = t.up(1.1)
+    assert g == Gesture.TAP and pos == (444, 273)
+    t.down(2.0)  # 座標イベントなし（同じ位置）
+    assert t.up(2.4) == (Gesture.TOGGLE, (444, 273))
+
+
+def test_tracker_applies_orientation():
+    t = TouchTracker(
+        size=(480, 320), ranges=((0, 4095), (0, 4095)), orient={"swap_xy": True, "invert_y": True}
+    )
+    t.down(0.0)
+    t.abs_x(0)
+    t.abs_y(4095)
+    assert t.up(0.1) == (Gesture.TAP, (479, 319))

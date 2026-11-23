@@ -98,8 +98,52 @@ def map_touch(
     return (round(min(1.0, max(0.0, fx)) * (w - 1)), round(min(1.0, max(0.0, fy)) * (h - 1)))
 
 
+class TouchTracker:
+    """タッチパネルの生のイベント（座標・押下・解放）から、ジェスチャと触れた位置を作る。
+
+    Linux の入力層は前回と同じ（または誤差内の）座標を送らないので、押下ごとに座標を消さず、
+    最後に受け取った座標を使う。同じボタンを続けて押したときに位置が分からなくなるのを防ぐ。
+    """
+
+    def __init__(
+        self,
+        size: tuple[int, int],
+        ranges: tuple[tuple[int, int], tuple[int, int]],
+        orient: dict[str, bool] | None = None,
+        classifier: TouchClassifier | None = None,
+    ):
+        self.size, self.ranges, self.orient = size, ranges, orient or {}
+        self.c = classifier or TouchClassifier()
+        self.raw = [0, 0]
+        self._has_pos = False
+
+    def abs_x(self, v: int) -> None:
+        self.raw[0], self._has_pos = v, True
+
+    def abs_y(self, v: int) -> None:
+        self.raw[1], self._has_pos = v, True
+
+    def pos(self) -> Point | None:
+        if not self._has_pos:
+            return None
+        return map_touch(
+            *self.raw, x_range=self.ranges[0], y_range=self.ranges[1], size=self.size, **self.orient
+        )
+
+    def down(self, t: float) -> None:
+        self.c.press(t)
+
+    def up(self, t: float) -> tuple[Gesture, Point | None] | None:
+        g = self.c.release(t)
+        return (g, self.pos()) if g else None
+
+    def tick(self, t: float) -> tuple[Gesture, Point | None] | None:
+        g = self.c.tick(t)
+        return (g, self.pos()) if g else None
+
+
 class EvdevTouchSource:  # pragma: no cover - 実機（evdev）でのみ動く
-    """BTN_TOUCH の押下/解放を TouchClassifier に流し、ジェスチャと触れた位置をコールバックする。
+    """evdev のイベントを TouchTracker に流し、ジェスチャと触れた位置をコールバックする。
 
     orient は map_touch の向き補正（swap_xy / invert_x / invert_y）。
     """
@@ -108,41 +152,26 @@ class EvdevTouchSource:  # pragma: no cover - 実機（evdev）でのみ動く
         self,
         device_path: str,
         on_gesture: Callable[[Gesture, Point | None], None],
-        classifier: TouchClassifier | None = None,
         tick_sec: float = 0.05,
         size: tuple[int, int] = (480, 320),
         orient: dict[str, bool] | None = None,
     ):
         self.device_path = device_path
         self.on_gesture = on_gesture
-        self.c = classifier or TouchClassifier()
         self.tick_sec = tick_sec
         self.size = size
         self.orient = orient or {}
-        self._raw: list[int] = [0, 0]
-        self._ranges: tuple[tuple[int, int], tuple[int, int]] = ((0, 4095), (0, 4095))
-        self._touched = False  # 押下中に座標を受け取ったか
+        self.t: TouchTracker | None = None
+        self._lock = threading.Lock()  # イベント受信とタイマーの 2 スレッドから触る
 
     def start(self) -> None:
         threading.Thread(target=self._events, name="touch", daemon=True).start()
         threading.Thread(target=self._ticker, name="touch-tick", daemon=True).start()
 
-    def _pos(self) -> Point | None:
-        if not self._touched:
-            return None
-        return map_touch(
-            *self._raw,
-            x_range=self._ranges[0],
-            y_range=self._ranges[1],
-            size=self.size,
-            **self.orient,
-        )
-
-    def _emit(self, g: Gesture | None) -> None:
-        if g:
-            pos = self._pos()
-            log.info("touch %s raw=%s screen=%s", g.value, tuple(self._raw), pos)  # 向きの確認用
-            self.on_gesture(g, pos)
+    def _emit(self, r: tuple[Gesture, Point | None] | None) -> None:
+        if r and self.t:
+            log.info("touch %s raw=%s screen=%s", r[0].value, tuple(self.t.raw), r[1])  # 向きの確認用
+            self.on_gesture(*r)
 
     def _events(self) -> None:
         import evdev
@@ -150,25 +179,29 @@ class EvdevTouchSource:  # pragma: no cover - 実機（evdev）でのみ動く
         dev = evdev.InputDevice(self.device_path)
         absinfo = dict(dev.capabilities().get(evdev.ecodes.EV_ABS, []))
         ax, ay = absinfo.get(evdev.ecodes.ABS_X), absinfo.get(evdev.ecodes.ABS_Y)
-        if ax and ay:
-            self._ranges = ((ax.min, ax.max), (ay.min, ay.max))
+        ranges = ((ax.min, ax.max), (ay.min, ay.max)) if ax and ay else ((0, 4095), (0, 4095))
+        log.info("touch device %s ranges=%s orient=%s", self.device_path, ranges, self.orient)
+        self.t = TouchTracker(self.size, ranges, self.orient)
         for ev in dev.read_loop():
-            if ev.type == evdev.ecodes.EV_ABS and ev.code in (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y):
-                self._raw[0 if ev.code == evdev.ecodes.ABS_X else 1] = ev.value
-                self._touched = True
-            elif ev.type == evdev.ecodes.EV_KEY and ev.code == evdev.ecodes.BTN_TOUCH:
-                now = time.monotonic()
-                if ev.value == 1:
-                    self._touched = False
-                    self.c.press(now)
-                elif ev.value == 0:
-                    self._emit(self.c.release(now))
+            r = None
+            with self._lock:
+                if ev.type == evdev.ecodes.EV_ABS and ev.code == evdev.ecodes.ABS_X:
+                    self.t.abs_x(ev.value)
+                elif ev.type == evdev.ecodes.EV_ABS and ev.code == evdev.ecodes.ABS_Y:
+                    self.t.abs_y(ev.value)
+                elif ev.type == evdev.ecodes.EV_KEY and ev.code == evdev.ecodes.BTN_TOUCH:
+                    if ev.value == 1:
+                        self.t.down(time.monotonic())
+                    elif ev.value == 0:
+                        r = self.t.up(time.monotonic())
+            self._emit(r)
 
     def _ticker(self) -> None:
         while True:
             time.sleep(self.tick_sec)
-            if self.c.pressed:
-                self._emit(self.c.tick(time.monotonic()))
+            with self._lock:
+                r = self.t.tick(time.monotonic()) if self.t and self.t.c.pressed else None
+            self._emit(r)
 
 
 def find_touch_device() -> str | None:  # pragma: no cover - 実機のみ
