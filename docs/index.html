@@ -94,6 +94,19 @@
   .twocol { display: grid; grid-template-columns: 1fr 300px; gap: 28px; align-items: start; }
   .side { position: sticky; top: 80px; }
 
+
+  /* 実際の画面 */
+  .screens { display: grid; grid-template-columns: 1.5fr 1fr; gap: 28px; align-items: start; margin-top: 26px; }
+  .device { background: #1C1A1F; border: 2px solid var(--ink); border-radius: 22px; padding: 14px 14px 20px; box-shadow: 6px 6px 0 var(--ink); position: relative; }
+  .device::after { content: ""; position: absolute; left: 0; right: 0; bottom: 8px; height: 4px; background: var(--orange); }
+  .device img { display: block; width: 100%; height: auto; border-radius: 6px; image-rendering: auto; }
+  .shots { display: grid; gap: 18px; }
+  .shot figcaption { margin-top: 10px; font-size: .92rem; color: var(--ink2); }
+  .shot figcaption b { color: var(--ink); }
+  figure { margin: 0; }
+  .phone { max-width: 300px; margin: 0 auto; background: #0B0F14; border: 2px solid var(--ink); border-radius: 36px; padding: 12px; box-shadow: 6px 6px 0 var(--pink); }
+  .phone img { display: block; width: 100%; height: auto; border-radius: 26px; }
+
   footer { padding: 40px 0 60px; text-align: center; color: var(--ink2); font-size: .9rem; }
 
   /* 回るレコード */
@@ -110,6 +123,7 @@
     .g2 { grid-template-columns: 1fr; }
     .flow ol { grid-template-columns: 1fr 1fr; gap: 26px 14px; }
     .side { position: static; }
+    .screens { grid-template-columns: 1fr; }
     /* 部品の表は 1 部品 = 1 枚のカードに積む */
     .parts, .parts tbody, .parts tr, .parts td { display: block; width: 100%; }
     .parts thead { display: none; }
@@ -134,6 +148,7 @@
     <nav aria-label="ページ内">
       <a href="#scenes">シーン</a>
       <a href="#how">しくみ</a>
+      <a href="#screens">画面</a>
       <a href="#parts">そろえるもの</a>
       <a href="#owner">オーナー</a>
       <a href="#guest">ゲスト</a>
@@ -267,6 +282,32 @@
         <li><b>順番に流れる</b>追加した曲がプレイリストより優先して流れる。画面には名前つきで表示</li>
       </ol>
     </div>
+  </div>
+</section>
+
+<!-- ===== 実際の画面 ===== -->
+<section id="screens" style="padding-top:0">
+  <div class="wrap">
+    <span class="tag">実際の画面</span>
+    <h2>本体の画面と、ゲストのスマホの画面</h2>
+    <p class="lead">本物のプログラムを動かして撮った画面です。ゲストが曲を追加すると、本体の画面がすぐ「次に流れる曲」に切り替わって、追加された曲が光ります。</p>
+    <div class="screens">
+      <div class="shots">
+        <figure class="shot">
+          <div class="device"><img src="img/lcd-record.png" width="480" height="320" alt="本体の画面。左に回るレコード、右に今の曲名「夜明けのドライブ」、次の曲「Sunset Groove（Aさん）」、曲を追加するための QR、右下に表示切替ボタン"></div>
+          <figcaption><b>ふだんの画面</b> — 左でレコードが回り、右に今の曲・次の曲と、ゲスト用の QR。ジャケットがない曲は、本体が曲ごとの模様を作って回します。</figcaption>
+        </figure>
+        <figure class="shot">
+          <div class="device"><img src="img/lcd-list.png" width="480" height="320" alt="本体の画面。左が「次に流れる曲」のリストになり、ゆうきさんが追加した「週末のサンバ」がピンクの枠で強調されている"></div>
+          <figcaption><b>曲が追加された直後</b> — 左が「次に流れる曲」に切り替わり、追加された曲と名前をピンクで強調（10 秒）。右下のボタンで レコード → リスト → 自動 と表示を選べます。</figcaption>
+        </figure>
+      </div>
+      <figure class="shot">
+        <div class="phone"><img src="img/guest.png" width="390" height="844" alt="ゲストのスマホの画面。上に「曲を追加する」の説明と検索欄、検索結果の「Citrus Pop」に追加・次に流すボタン、その下に「あなたが追加した曲」として「週末のサンバ」と取り消すボタン、名前欄"></div>
+        <figcaption><b>ゲストのスマホ</b> — QR を読むと開く画面。曲を探して「追加」、自分の曲は「取り消す」もできます。</figcaption>
+      </figure>
+    </div>
+    <p class="muted" style="margin-top:18px">開発用のパソコンで、本体と同じプログラムを動かして撮影しました。曲名は架空のものです。実機では、曲の再生時間（例 1:02 / 4:21）も表示されます。</p>
   </div>
 </section>
 
