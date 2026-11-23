@@ -338,7 +338,9 @@ def create_app(ctx: AppContext) -> FastAPI:
             except PinLocked as e:
                 raise locked(e) from e
             if not ok:
-                raise _err(403, "wrong_code", "本体の画面に出ている設定コードを入力してください")
+                raise _err(
+                    403, "wrong_code", "実機の画面に表示されている 6 桁の数字（設定コード）を入れてください"
+                )
             store.update(owner_pin_hash=hash_pin(body.pin))
             ctx.setup_code.clear()
         ctx.on_ap_change()  # LCD から設定コードを消す

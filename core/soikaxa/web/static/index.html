@@ -7,7 +7,8 @@
 <title>SoiKaxa</title>
 <link rel="icon" href="data:,">
 <style>
-  :root { --bg:#0B0F14; --panel:#111821; --line:#1C242C; --cyan:#5DCAA5; --magenta:#ED93B1; --fg:#C9D1D9; --muted:#7D8590;
+  /* --field: 入力欄の枠。パネル・背景の両方と 3:1 以上（WCAG 1.4.11）。区切り線の --line は控えめのまま */
+  :root { --bg:#0B0F14; --panel:#111821; --line:#1C242C; --field:#5F6B78; --cyan:#5DCAA5; --magenta:#ED93B1; --fg:#C9D1D9; --muted:#7D8590;
           --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Noto Sans Mono CJK JP", Menlo, Consolas, monospace; color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 var(--mono); padding:16px 14px 48px; max-width:560px; margin-inline:auto; }
@@ -25,12 +26,16 @@
   .notes { white-space:pre-wrap; overflow-wrap:anywhere; max-height:180px; overflow:auto; font:13px/1.5 inherit; color:var(--muted); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; margin:6px 0; }
   ul { list-style:none; margin:0; padding:0; } li { padding:8px 0; border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; }
   li:last-child { border-bottom:none; } li .grow { flex:1; min-width:0; overflow-wrap:anywhere; }
-  input, select { width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; min-height:44px; }
-  input:focus { outline:2px solid var(--cyan); }
+  input, select { width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--field); border-radius:8px; padding:10px; font:inherit; min-height:44px; }
+  input::placeholder { color:var(--muted); opacity:1; }
+  input:focus, select:focus { outline:2px solid var(--cyan); outline-offset:1px; border-color:var(--cyan); }
+  label.field { display:block; margin:12px 0 4px; font-size:14px; color:var(--fg); }
   input[type=range], input[type=checkbox] { accent-color: var(--cyan); }
+  input[type=range] { border:none; background:transparent; padding:0; }
   button { background:transparent; color:var(--cyan); border:1px solid var(--cyan); border-radius:8px; padding:8px 12px; font:inherit; min-height:44px; min-width:44px; cursor:pointer; }
   button.primary { background:var(--cyan); color:var(--bg); } button.warn { color:var(--magenta); border-color:var(--magenta); }
-  button:disabled { opacity:.4; }
+  button:disabled { opacity:.4; } button.busy:disabled { opacity:1; cursor:progress; }
+  .ok { color:var(--cyan); font-size:13px; }
   .row { display:flex; gap:8px; align-items:center; margin:8px 0; } .row > * { flex:1; } .row > button { flex:none; }
   label.chk { display:flex; gap:8px; align-items:center; min-height:44px; } label.chk input { width:auto; min-height:auto; }
   .toast { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); background:var(--panel); border:1px solid var(--cyan); padding:10px 14px; border-radius:10px; max-width:90vw; }
@@ -74,15 +79,16 @@
   <section id="pinBox">
     <p id="pinLabel">オーナー PIN（6〜8 桁）</p>
     <div id="codeBox" class="hidden">
-      <label for="setupCode"><small>設定コード（本体の画面に出ている 6 桁）</small></label>
-      <input id="setupCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-      <p class="sub">PIN は他のサービスと同じものを使わないでください（端末内の通信は暗号化されません）。</p>
+      <label class="field" for="setupCode">① 実機に表示されている 6 桁の数字</label>
+      <input id="setupCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="実機の画面を見て入力" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-describedby="codeHelp">
+      <p class="sub" id="codeHelp">実機（SoiKaxa 本体）の画面に「設定コード」として出ている数字です。自分で決める番号ではありません。</p>
     </div>
-    <label for="pin"><small>PIN</small></label>
+    <label class="field" for="pin" id="pinFieldLabel">PIN</label>
     <form id="pinForm" class="row">
-      <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="current-password" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="PIN">
+      <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="current-password" autocorrect="off" autocapitalize="off" spellcheck="false">
       <button class="primary" type="submit" id="pinBtn">入る</button>
     </form>
+    <p class="sub hidden" id="pinNote">PIN は他のサービスと同じものを使わないでください（端末内の通信は暗号化されません）。</p>
     <p><a href="#">ゲスト画面へ戻る</a></p>
   </section>
 
@@ -142,7 +148,7 @@
       <h2>認証登録</h2>
       <p class="sub">ログイン済みブラウザのリクエストヘッダを貼り付け（端末内のみに保存）</p>
       <ul id="authList"></ul>
-      <textarea id="authRaw" rows="5" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;font:inherit" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="認証ヘッダ"></textarea>
+      <textarea id="authRaw" rows="5" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--field);border-radius:8px;font:inherit" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="認証ヘッダ"></textarea>
       <div class="row"><button id="authSave" class="primary">登録</button><button id="authDel" class="warn">認証削除</button></div>
       <h2>再生エンジンの更新</h2>
       <p class="sub">曲を取得する部品だけを更新します（毎日自動でも行います）</p>
@@ -260,8 +266,12 @@ function route() {
   const logged = statusCache.is_owner;
   $("pinBox").classList.toggle("hidden", logged);
   $("ownerPanel").classList.toggle("hidden", !logged);
-  $("pinLabel").textContent = statusCache.has_pin ? "オーナー PIN（6〜8 桁）" : "最初にオーナー PIN を決めてください（6〜8 桁の数字）";
-  $("codeBox").classList.toggle("hidden", statusCache.has_pin);
+  const setup = !statusCache.has_pin;
+  $("pinLabel").textContent = setup ? "はじめに、次の 2 つを入れてオーナー PIN を登録します" : "オーナー PIN（6〜8 桁）";
+  $("pinFieldLabel").textContent = setup ? "② 新しい PIN（6〜8 桁の数字を自分で決める）" : "PIN";
+  $("pin").autocomplete = setup ? "new-password" : "current-password";
+  $("codeBox").classList.toggle("hidden", !setup);
+  $("pinNote").classList.toggle("hidden", !setup);
   $("pinBtn").textContent = statusCache.has_pin ? "入る" : "設定";
   if (logged && !route.loaded) { route.loaded = true; loadOwner(); }
   if (!logged) route.loaded = false;
@@ -271,6 +281,9 @@ window.onhashchange = route;
 $("pinForm").onsubmit = async (ev) => {
   ev.preventDefault();
   const setup = !(statusCache && statusCache.has_pin);
+  // サーバーの型チェック（「入力を確認してください」）より先に、どの欄が違うかを伝える
+  if (setup && !/^[0-9]{6}$/.test($("setupCode").value)) { toast("①には実機の画面に表示されている 6 桁の数字を入れてください"); $("setupCode").focus(); return; }
+  if (!/^[0-9]{6,8}$/.test($("pin").value)) { toast("PIN は 6〜8 桁の数字にしてください"); $("pin").focus(); return; }
   const body = setup ? { pin: $("pin").value, setup_code: $("setupCode").value } : { pin: $("pin").value };
   try { csrf = (await api("POST", setup ? "/api/owner/setup" : "/api/owner/login", body)).csrf; $("pin").value = ""; $("setupCode").value = ""; await refresh(); }
   catch (e) { toast(e.message || "PIN が違います"); }
@@ -364,16 +377,53 @@ function loadWifi() { guard(async () => {
 $("apRegen").onclick = () => guard(async () => { if (!confirm("ゲストは QR を読み直す必要があります。再生成しますか？")) return; await api("POST", "/api/owner/ap/regenerate"); loadWifi(); });
 
 // Bluetooth
+// スキャンも接続も数秒〜数十秒かかる。終わるまでスピーカー画面のボタンを止め、押したボタンに経過を出す
+let btBusy = false;
+function btSetBusy(on, active) {
+  btBusy = on;
+  document.querySelectorAll('[data-panel="spk"] button').forEach((b) => { b.disabled = on; b.classList.toggle("busy", on && b === active); });
+}
+function btRow(name, hint, mac, onDone) { // 名前・状態の行・接続ボタン
+  const li = el("li"), info = el("div", null, { class: "grow" }), st = el("div", hint.text || "", { class: hint.cls || "sub" });
+  info.append(el("div", name), st);
+  const b = btn("接続", () => guard(async () => { if (await btConnect(b, st, mac, hint.wait)) onDone(); }));
+  b.disabled = btBusy; li.append(info, b); return li;
+}
+async function btConnect(b, st, mac, wait) {
+  if (btBusy) return false;
+  const t0 = Date.now(), tick = () => { b.textContent = "接続中… " + Math.floor((Date.now() - t0) / 1000) + " 秒"; };
+  btSetBusy(true, b); tick(); const h = setInterval(tick, 1000);
+  st.className = "sub"; st.textContent = wait;
+  try {
+    const x = await api("POST", "/api/owner/bt/connect", { mac });
+    st.className = x.ok ? "ok" : "notice"; st.textContent = x.ok ? "接続しました" : x.message;
+    toast(x.ok ? (x.name ? x.name + " に" : "") + "接続しました" : "接続できませんでした");
+    return x.ok;
+  } catch (e) { st.className = "notice"; st.textContent = e.message; throw e; }
+  finally { clearInterval(h); b.textContent = "接続"; btSetBusy(false); }
+}
+const BT_WAIT_NEW = "接続しています。初回はペアリングも行うので 10〜20 秒ほど（最大 40 秒）";
+const BT_WAIT_KNOWN = "接続しています。数秒〜15 秒ほど（最大 40 秒）";
 $("btScan").onclick = () => guard(async () => {
-  const ul = $("btList"); ul.replaceChildren(el("li", "スキャン中…（約 8 秒）"));
-  const r = await api("GET", "/api/owner/bt/scan"); ul.replaceChildren();
-  if (!r.devices.length) ul.append(el("li", "見つかりません"));
-  for (const d of r.devices) { const li = el("li"); li.append(el("div", d.name, { class: "grow" }), btn("接続", () => guard(async () => { toast("接続中…"); const x = await api("POST", "/api/owner/bt/connect", { mac: d.mac }); toast(x.ok ? (x.name || d.name) + " に接続しました" : x.message); loadBt(); }))); ul.append(li); }
+  if (btBusy) return;
+  const b = $("btScan"), ul = $("btList"), t0 = Date.now(), SEC = 8; // bt.scan() の既定秒数
+  const tick = () => { const left = SEC - Math.floor((Date.now() - t0) / 1000); b.textContent = left > 0 ? "スキャン中… 残り " + left + " 秒" : "スキャン中… まもなく"; };
+  ul.replaceChildren(el("li", "近くのスピーカーを探しています。ペアリングモードのままにしてください"));
+  btSetBusy(true, b); tick(); const h = setInterval(tick, 1000);
+  try {
+    const r = await api("GET", "/api/owner/bt/scan"); ul.replaceChildren();
+    if (!r.devices.length) ul.append(el("li", "見つかりません。ペアリングモードを確認して、もう一度スキャンしてください"));
+    for (const d of r.devices) ul.append(btRow(d.name, { wait: BT_WAIT_NEW }, d.mac, loadBt));
+  } catch (e) { ul.replaceChildren(); throw e; }
+  finally { clearInterval(h); b.textContent = "スキャン"; btSetBusy(false); }
 });
 function loadBt() { guard(async () => {
   const r = await api("GET", "/api/owner/bt"); const ul = $("btKnown"); ul.replaceChildren();
   if (!r.known.length) ul.append(el("li", "—"));
-  for (const k of r.known) { const li = el("li"); li.append(el("div", k.name + (k.connected ? "  接続中" : ""), { class: "grow" }), btn("接続", () => guard(async () => { const x = await api("POST", "/api/owner/bt/connect", { mac: k.mac }); toast(x.ok ? "接続しました" : x.message); loadBt(); }))); ul.append(li); }
+  for (const k of r.known) {
+    const hint = k.connected ? { text: "接続済み", cls: "ok" } : { text: "未接続" };
+    ul.append(btRow(k.name, { ...hint, wait: BT_WAIT_KNOWN }, k.mac, loadBt));
+  }
 }); }
 
 // 音源
