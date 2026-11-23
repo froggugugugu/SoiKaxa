@@ -47,6 +47,7 @@ scripts/deploy.sh <user>@soikaxa.local [--music <MP3フォルダ>] [--code-only]
 | `SOIKAXA_AP_SAME_RADIO` | — | `1` = AP が STA と同じ無線チップ上の仮想 IF（`uap0`）。チャンネルを STA に合わせる |
 | `SOIKAXA_FB` | 480×320 の fb を自動検出（無ければ `/dev/fb1`） | LCD フレームバッファ |
 | `SOIKAXA_FONT` | 自動探索 | LCD フォント |
+| `SOIKAXA_TOUCH_SWAP_XY` / `SOIKAXA_TOUCH_INVERT_X` / `SOIKAXA_TOUCH_INVERT_Y` | — | `1` でタッチ座標の縦横入れ替え・左右反転・上下反転（LCD のボタン位置が合わないとき） |
 | `SOIKAXA_UPDATE_UNIT` | なし（`soikaxa@.service` が設定） | 「今すぐ更新」で起動するユニット。未設定なら更新は開始しない |
 | `SOIKAXA_UPGRADE_UNIT` | なし（`soikaxa@.service` が設定） | 「アップグレード」で起動するユニット。未設定なら更新は使えない |
 | `SOIKAXA_RELEASE_REPO` | `froggugugugu/SoiKaxa` | ソフトウェア更新で見る GitHub リポジトリ（`upgrade.sh` も同じ変数を見る） |

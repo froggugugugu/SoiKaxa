@@ -3,7 +3,7 @@ from soikaxa import bt, health
 from soikaxa.adapters.base import AdapterError, Resolved
 from soikaxa.fakes import FakeRunner
 from soikaxa.runner import CommandResult
-from soikaxa.touch import Gesture, TouchClassifier
+from soikaxa.touch import Gesture, TouchClassifier, map_touch
 
 MAC = "AA:BB:CC:DD:EE:FF"
 DEVICES = (
@@ -141,10 +141,29 @@ def test_check_source_and_roundtrip(tmp_path):
 # ---------- touch ----------
 
 
-def test_short_touch_ignored():
+def test_short_touch_is_tap_not_toggle():
+    """0.3 秒未満は再生/停止にしない（誤タッチ防止）。ボタン用の軽いタップとしてだけ返す。"""
     c = TouchClassifier()
     c.press(0)
-    assert c.release(0.29) is None
+    assert c.release(0.29) == Gesture.TAP
+    c.press(1)
+    assert c.release(1.03) is None  # 0.05 秒未満はノイズ
+
+
+@pytest.mark.parametrize(
+    ("raw", "opts", "want"),
+    [
+        ((0, 0), {}, (0, 0)),
+        ((4095, 4095), {}, (479, 319)),
+        ((2048, 1024), {}, (240, 80)),
+        ((4095, 0), {"invert_x": True}, (0, 0)),
+        ((0, 4095), {"invert_y": True}, (0, 0)),
+        ((4095, 0), {"swap_xy": True}, (0, 319)),  # 生の X が画面の縦になる
+        ((-50, 5000), {}, (0, 319)),  # 範囲外は端に丸める
+    ],
+)
+def test_map_touch(raw, opts, want):
+    assert map_touch(*raw, x_range=(0, 4095), y_range=(0, 4095), size=(480, 320), **opts) == want
 
 
 def test_tap_toggles():

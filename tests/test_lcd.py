@@ -165,3 +165,13 @@ def test_now_playing_with_queue_rows_replaces_record():
     assert with_list.crop(left).tobytes() != with_disc.crop(left).tobytes()
     colors = {c for _, c in with_list.crop(left).getcolors(100000)}
     assert theme.MAGENTA in colors  # 追加された曲を強調
+
+
+def test_list_button_label_follows_mode():
+    base = screens.NowPlayingView(title="曲", guest_qr="WIFI:T:WPA;S:x;P:y;;")
+    box = screens.LIST_BUTTON
+    disc = screens.render_now_playing(base).crop(box)
+    lst = screens.render_now_playing(replace(base, queue_rows=())).crop(box)
+    assert disc.getbbox() and lst.getbbox()
+    assert disc.tobytes() != lst.tobytes()  # 「リスト」⇄「レコード」
+    assert box[2] <= 480 and box[3] <= 320 and box[2] - box[0] >= 44 and box[3] - box[1] >= 44

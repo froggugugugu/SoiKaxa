@@ -11,8 +11,6 @@ from soikaxa.fakes import FakeTransport
 from soikaxa.lcd import screens
 from soikaxa.lcd.controller import (
     LIST_ADDED_SEC,
-    LIST_CYCLE_DISC_SEC,
-    LIST_CYCLE_LIST_SEC,
     MSG_NO_SPEAKER,
     CoverLoader,
     LcdController,
@@ -364,6 +362,29 @@ def test_connect_speaker_failure(rt):
     assert not bootstrap.connect_speaker(rt) and rt.service.state.value == "ONLINE"
 
 
+def test_on_gesture_list_button(rt):
+    """LCD のリストボタンは軽いタップでも反応し、再生/停止にはしない。ほかの場所の軽いタップは無視。"""
+    _music(rt, n=2)
+    rt.service.select_playlist("Mix", "local")
+    toggled = []
+
+    class Lcd:
+        def hits_list_button(self, pos):
+            return pos == (430, 270)
+
+        def toggle_list(self):
+            toggled.append(1)
+
+    lcd = Lcd()
+    bootstrap.on_gesture(rt, Gesture.TAP, lambda: None, pos=(430, 270), lcd=lcd)
+    bootstrap.on_gesture(rt, Gesture.TOGGLE, lambda: None, pos=(430, 270), lcd=lcd)
+    assert toggled == [1, 1] and not rt.service.status().paused
+    bootstrap.on_gesture(rt, Gesture.TAP, lambda: None, pos=(20, 20), lcd=lcd)
+    assert toggled == [1, 1] and not rt.service.status().paused
+    bootstrap.on_gesture(rt, Gesture.TOGGLE, lambda: None, pos=(20, 20), lcd=lcd)
+    assert rt.service.status().paused
+
+
 def test_on_gesture_routes(rt):
     shown = []
     music = rt.data_dir.parent / "music" / "Mix"
@@ -400,15 +421,39 @@ def _playing(lcd):
     return c, svc, fb, jobs, clock
 
 
-def test_left_area_cycles_record_and_list(lcd):
-    """レコード 20 秒 → リスト 8 秒を繰り返す。"""
+def test_list_button_toggles_left_area(lcd):
+    """自動では切り替えない。LCD のボタンでレコード ⇄ リストを切り替える。"""
     c, svc, fb, jobs, clock = _playing(lcd)
     assert c.view()[1].queue_rows is None
-    clock.t += LIST_CYCLE_DISC_SEC + 1
+    clock.t += 120
+    assert c.view()[1].queue_rows is None  # 時間がたっても勝手に切り替わらない
+    c.toggle_list()
     rows = c.view()[1].queue_rows
     assert rows and rows[0].title == "B" and not any(r.highlight for r in rows)
-    clock.t += LIST_CYCLE_LIST_SEC
+    c.toggle_list()
     assert c.view()[1].queue_rows is None
+
+
+def test_list_button_hit_area(lcd):
+    c, svc, fb, jobs, clock = _playing(lcd)
+    x0, y0, x1, y1 = screens.LIST_BUTTON
+    c.render_once()
+    assert c.hits_list_button(((x0 + x1) // 2, (y0 + y1) // 2))
+    assert not c.hits_list_button((20, 20)) and not c.hits_list_button(None)
+    c.show_setup_qr()
+    c.render_once()
+    assert not c.hits_list_button(((x0 + x1) // 2, (y0 + y1) // 2))  # ボタンが出ていない画面では押せない
+
+
+def test_added_list_returns_to_chosen_mode(lcd):
+    c, svc, fb, jobs, clock = _playing(lcd)
+    c.toggle_list()
+    c.view()
+    svc.enqueue(Track(id="g", title="ゲストの曲", source="local"), added_by="Aさん")
+    assert c.view()[1].queue_rows[0].highlight
+    clock.t += LIST_ADDED_SEC + 1
+    rows = c.view()[1].queue_rows
+    assert rows is not None and not rows[0].highlight  # リストを選んでいたらリストのまま
 
 
 def test_guest_add_shows_list_with_highlight_then_returns(lcd):
@@ -436,8 +481,15 @@ def test_record_is_not_drawn_over_list(lcd):
     assert fb.path.read_bytes() == before
 
 
-def test_no_list_without_upcoming(lcd):
+def test_list_without_upcoming_is_empty(lcd):
     c, svc, fb, jobs, clock, _ = lcd
     svc.dispatch(Event.NET_UP)
-    clock.t += LIST_CYCLE_DISC_SEC + 1
     assert c.view()[1].queue_rows is None
+    c.toggle_list()
+    assert c.view()[1].queue_rows == ()  # 「次の曲はありません」を出す
+
+
+def test_touch_orientation_from_env():
+    assert bootstrap.touch_orientation({}) == {"swap_xy": False, "invert_x": False, "invert_y": False}
+    env = {"SOIKAXA_TOUCH_SWAP_XY": "1", "SOIKAXA_TOUCH_INVERT_Y": "1", "SOIKAXA_TOUCH_INVERT_X": "0"}
+    assert bootstrap.touch_orientation(env) == {"swap_xy": True, "invert_x": False, "invert_y": True}

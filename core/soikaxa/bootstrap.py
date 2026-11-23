@@ -11,9 +11,10 @@ import os
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from .adapters.registry import load_adapters
 from .auth import PinGuard, SetupCode
@@ -150,10 +151,30 @@ def connect_speaker(rt: Runtime) -> bool:
     return True
 
 
+def touch_orientation(env: Mapping[str, str]) -> dict[str, bool]:
+    """タッチの向き補正。SOIKAXA_TOUCH_SWAP_XY / _INVERT_X / _INVERT_Y を "1" にすると有効。"""
+    keys = {"swap_xy": "SWAP_XY", "invert_x": "INVERT_X", "invert_y": "INVERT_Y"}
+    return {k: env.get(f"SOIKAXA_TOUCH_{v}") == "1" for k, v in keys.items()}
+
+
+class ListButton(Protocol):
+    def hits_list_button(self, pos: tuple[int, int] | None) -> bool: ...
+    def toggle_list(self) -> None: ...
+
+
 def on_gesture(
-    rt: Runtime, gesture: Gesture, show_setup: Callable[[], None], unlock: Callable[[], None] = lambda: None
+    rt: Runtime,
+    gesture: Gesture,
+    show_setup: Callable[[], None],
+    unlock: Callable[[], None] = lambda: None,
+    pos: tuple[int, int] | None = None,
+    lcd: ListButton | None = None,
 ) -> None:
-    if gesture == Gesture.TOGGLE:
+    if gesture in (Gesture.TAP, Gesture.TOGGLE) and lcd is not None and lcd.hits_list_button(pos):
+        lcd.toggle_list()  # ボタンは軽いタップでも押せる。再生/停止にはしない
+    elif gesture == Gesture.TAP:
+        return  # ボタン以外の軽いタップは誤タッチとして無視
+    elif gesture == Gesture.TOGGLE:
         rt.service.toggle()
     elif gesture == Gesture.NEXT:
         rt.service.next()
@@ -227,7 +248,11 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
     touch_dev = None if rt.fake else find_touch_device()
     if touch_dev:
         show = lcd.show_setup_qr if lcd else (lambda: None)
-        EvdevTouchSource(touch_dev, lambda g: on_gesture(rt, g, show, pin_guard.reset)).start()
+        EvdevTouchSource(
+            touch_dev,
+            lambda g, pos: on_gesture(rt, g, show, pin_guard.reset, pos=pos, lcd=lcd),
+            orient=touch_orientation(os.environ),
+        ).start()
 
     def run_update() -> bool:
         unit = os.environ.get("SOIKAXA_UPDATE_UNIT")  # soikaxa@.service が設定する

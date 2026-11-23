@@ -14,6 +14,7 @@ RECORD_XY = (20, (HEIGHT - DIAMETER) // 2)
 
 
 LIST_BOX = (0, 0, 230, HEIGHT)  # リスト表示で使う左側の領域（レコードの場所を含む）
+LIST_BUTTON = (388, 232, 474, 306)  # QR の右、左側の表示を切り替えるボタン（タップ領域。44px 以上）
 
 
 @dataclass(frozen=True)
@@ -132,9 +133,20 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
     # ゲスト QR（静止）
     if view.guest_qr:
         img.paste(make_qr(view.guest_qr, 140), (x, 172))
-        d.text((x + 150, 230), "曲を追加", font=font(16), fill=CYAN)
-        d.text((x + 150, 254), "QR を読む", font=font(14), fill=MUTED)
+        d.text((x + 150, 178), "曲を追加", font=font(16), fill=CYAN)
+        d.text((x + 150, 202), "QR を読む", font=font(14), fill=MUTED)
+    _draw_list_button(d, showing_list=view.queue_rows is not None)
     return img
+
+
+def _draw_list_button(d: ImageDraw.ImageDraw, showing_list: bool) -> None:
+    """押すと左側がレコード ⇄ 次の曲リストに切り替わる。ラベルは押したあとの表示。"""
+    x0, y0, x1, y1 = LIST_BUTTON
+    d.rounded_rectangle(LIST_BUTTON, radius=8, outline=CYAN, width=2)
+    label = "レコード" if showing_list else "リスト"
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    d.text((cx, cy - 9), label, font=font(16), fill=CYAN, anchor="mm")
+    d.text((cx, cy + 13), "表示", font=font(13), fill=MUTED, anchor="mm")
 
 
 def _draw_queue(d: ImageDraw.ImageDraw, rows: tuple[QueueRow, ...]) -> None:
@@ -142,6 +154,8 @@ def _draw_queue(d: ImageDraw.ImageDraw, rows: tuple[QueueRow, ...]) -> None:
     x0, _, x1, _ = LIST_BOX
     x, w, row_h = x0 + 14, x1 - x0 - 24, 54
     d.text((x, 14), "次に流れる曲", font=font(16), fill=CYAN)
+    if not rows:
+        d.text((x, 48), "次の曲はありません", font=font(16), fill=MUTED)
     for i, row in enumerate(rows[:5]):
         y = 44 + i * row_h
         if row.highlight:
