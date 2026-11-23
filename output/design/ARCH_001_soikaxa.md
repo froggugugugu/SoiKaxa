@@ -273,9 +273,11 @@ class PlayerService:
 | `/static/{file}` | GET | P | jsQR.js 等 |
 | 接続検知パス（`/hotspot-detect.html`, `/library/test/success.html`, `/generate_204`, `/gen_204`, `/connecttest.txt`, `/ncsi.txt`, `/redirect`）・外部 Host | GET | P | `302 → http://10.42.0.1/` |
 | `/api/status` | GET | P | 状態・今の曲・次の曲。`sk_gid` 発行。オーナーセッション有無 `is_owner`、`has_pin` |
-| `/api/search?q=` | GET | G | `{results: [{kind, id, title, artist, duration_sec, track_count}]}`。q は 1〜100 文字。送信元ごとに 30 回/分（429） |
+| `/api/search?q=` | GET | G | `{results: [{kind, id, title, artist, duration_sec, track_count}]}`。q は 1〜300 文字（曲名のほか、音源アプリの共有リンクをアダプタが解釈）。送信元ごとに 30 回/分（429） |
 | `/api/search/playlists/{id}` | GET | G | 検索キャッシュ内の公開プレイリストの曲一覧（検索時点の音源で展開、最大 200 曲、回数制限は検索と共通） |
 | `/api/queue` | POST | G | `{track_id, name?(≤20), play_next?}` → `{item_id}`。429=上限、403=次に流す禁止/受付停止、404=キャッシュにない |
+| `/api/queue/mine` | GET | G | 自分（`sk_gid`）が追加してまだ流れていない曲 `{items: [{item_id, title, added_by}]}`。Cookie なしは空 |
+| `/api/queue/{item_id}` | DELETE | G | 自分の追加曲の取り消し。他人の曲・Cookie なしは 404 |
 | `/api/owner/setup` | POST | P（PIN 未設定時のみ） | `{pin, setup_code}` → セッション発行。`setup_code` は本体 LCD にだけ表示。403=コード違い、423=ロック中 |
 | `/api/owner/login` | POST | P | `{pin}` → `{csrf}` + Cookie。423=ロック中（照合前に判定）、429=同時照合の上限 |
 | `/api/owner/logout` | POST | O | セッション破棄 |
@@ -286,7 +288,8 @@ class PlayerService:
 | `/api/owner/queue` | GET | O | キュー（guest_id 含む） |
 | `/api/owner/queue/{item_id}` | DELETE | O | 削除 |
 | `/api/owner/queue/{item_id}/move` | POST | O | `{index}` |
-| `/api/owner/settings` | GET / PATCH | O | `guest_enabled, allow_play_next, guest_queue_limit, autoplay, active_adapter` |
+| `/api/owner/settings` | GET / PATCH | O | `guest_enabled, allow_play_next, guest_queue_limit, autoplay, repeat, active_adapter` |
+| `/api/owner/touch/calibrate` | POST | O | LCD のタッチ位置合わせを始める（結果は `touch_cal` に保存）。409=タッチパネルなし |
 | `/api/owner/wifi/scan` | GET | O | スキャン一覧 |
 | `/api/owner/wifi` | GET / POST | O | 保存一覧 / `{ssid(1-32B), password(0 or 8-63), hidden, label?}` → ConnectResult |
 | `/api/owner/wifi/{ssid}` | DELETE | O | 削除 |
@@ -357,7 +360,7 @@ class PlayerService:
 | ゲストによる音源アカウントの消費 | 検索と公開プレイリスト展開は未認証クライアントで実行。検索は送信元ごとに回数制限、展開は最大 200 曲 |
 | CSRF | オーナーの状態変更は `X-SoiKaxa-CSRF` ヘッダ必須（セッションと紐づくトークン）。Cookie は `HttpOnly; SameSite=Strict; Path=/` |
 | XSS | HTML 生成は `textContent` のみ（`innerHTML` 禁止）。CSP: `default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'` |
-| 入力検証 | pydantic で長さ・範囲・正規表現（SSID ≤32 バイト、WPA パスワード 8〜63、MAC、PIN 4〜8 桁、検索 1〜100 文字、名前 ≤20 文字）。nmcli/bluetoothctl は引数配列で渡しシェルを経由しない。bluetoothctl に渡す値は検証済み MAC のみ |
+| 入力検証 | pydantic で長さ・範囲・正規表現（SSID ≤32 バイト、WPA パスワード 8〜63、MAC、PIN 4〜8 桁、検索 1〜300 文字、名前 ≤20 文字）。nmcli/bluetoothctl は引数配列で渡しシェルを経由しない。bluetoothctl に渡す値は検証済み MAC のみ |
 | 認証情報保護 | 認証ファイル・settings は 0600、データディレクトリ 0700。ログに PIN・パスワード・ヘッダを出さない。`.gitignore` で `browser.json` 等を除外 |
 | パストラバーサル | ローカル MP3 の resolve はルート配下検証（既存実装）。静的配信は FastAPI `StaticFiles` |
 | 外部依存 | 外部 CDN・外部サービスへの通信なし（音源アダプタの上流通信を除く） |
