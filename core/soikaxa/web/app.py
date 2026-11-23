@@ -129,7 +129,11 @@ class AppContext:
 
 
 def _track_json(t: TrackView | None) -> dict[str, Any] | None:
-    return asdict(t) if t else None
+    if t is None:
+        return None
+    out = asdict(t)
+    out.pop("item_id", None)  # LCD 用の内部 ID。キュー操作の ID はオーナー API だけで返す
+    return out
 
 
 def _status_json(st: StatusView) -> dict[str, Any]:

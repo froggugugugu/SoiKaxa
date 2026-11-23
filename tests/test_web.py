@@ -160,6 +160,10 @@ def test_guest_search_enqueue_and_limits(env):
     assert client.post("/api/queue", json={"track_id": "s2"}).status_code == 200
     assert client.post("/api/queue", json={"track_id": "s3"}).status_code == 200
     assert client.post("/api/queue", json={"track_id": "s4"}).status_code == 200
+    st = client.get("/api/status").json()
+    assert st["upcoming"] and all(
+        "item_id" not in u for u in st["upcoming"] + [st["now"]]
+    )  # 内部 ID は出さない
     # 再生中の 1 曲は消費済みなので上限 3 = キューに 3 件
     r = client.post("/api/queue", json={"track_id": "s1"})
     assert r.status_code == 429 and r.json()["detail"]["error"] == "limit"
