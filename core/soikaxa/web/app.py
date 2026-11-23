@@ -100,6 +100,7 @@ class RateLimiter:
 
 Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 MAX_GUEST_PLAYLIST_TRACKS = 200
+MAX_SEARCH_CHARS = 300  # 曲名のほか、音源アプリの共有リンク（プレイリストは 100 文字を超える）も受ける
 
 
 @dataclass
@@ -279,8 +280,8 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.get("/api/search", dependencies=guest_search)
     def search(q: str) -> dict[str, Any]:
         q = q.strip()
-        if not 1 <= len(q) <= 100:
-            raise _err(422, "invalid", "1〜100 文字で検索してください")
+        if not 1 <= len(q) <= MAX_SEARCH_CHARS:
+            raise _err(422, "invalid", f"1〜{MAX_SEARCH_CHARS} 文字で検索してください")
         results = svc.search(q, 20)
         for r in results:
             ctx.cache.put(r)

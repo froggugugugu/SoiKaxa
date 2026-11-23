@@ -54,8 +54,24 @@ class FakeYT:
             ]
         }
 
+    playable = "OK"
+
+    def get_song(self, vid):
+        self._maybe_fail()
+        return {
+            "playabilityStatus": {"status": self.playable},
+            "videoDetails": {
+                "videoId": vid,
+                "title": "Shared",
+                "author": "Singer",
+                "lengthSeconds": "215",
+                "thumbnail": {"thumbnails": [{"url": "s"}, {"url": "big"}]},
+            },
+        }
+
     def search(self, q, filter, limit):
         self._maybe_fail()
+        self.searched = True
         if filter == "songs":
             return [{"videoId": VID, "title": "Found", "artists": []}] * self.songs
         return [{"browseId": "VLPLabc", "title": "Public"}, {"title": "none"}]
@@ -240,3 +256,46 @@ def test_clear_auth_drops_clients_and_owner_ids(tmp_path):
     a.list_playlists()
     a.clear_auth()
     assert a._clients == {} and a._owner_playlists == set()
+
+
+@pytest.mark.parametrize(
+    "q",
+    [
+        f"https://music.youtube.com/watch?v={VID}&si=AbCdEfGh12345678",
+        f"https://youtu.be/{VID}?si=AbCdEfGh12345678",
+        f"https://www.youtube.com/watch?v={VID}&list=RDAMVM{VID}",
+        f"https://m.youtube.com/watch?feature=share&v={VID}",
+        f"この曲 https://music.youtube.com/watch?v={VID} 流して",
+    ],
+)
+def test_search_by_share_link_returns_that_song(tmp_path, q):
+    """ゲストが自分のアプリで「リンクをコピー」したものを貼ると、その曲 1 件だけを返す。"""
+    a = adapter(tmp_path)
+    a.register_auth("h")
+    res = a.search(q)
+    assert res == [
+        Track(
+            id=VID,
+            title="Shared",
+            artist="Singer",
+            duration_sec=215,
+            source="ytmusic",
+            extra={"thumbnail": "big"},
+        )
+    ]
+    assert a.created == [None]  # 共有リンクでもオーナーのアカウントは使わない
+
+
+def test_search_by_share_link_playlist(tmp_path):
+    res = adapter(tmp_path).search("https://music.youtube.com/playlist?list=PLabc_123&si=xyz")
+    assert res == [Playlist(id="PLabc_123", title="共有されたプレイリスト", source="ytmusic")]
+
+
+def test_search_by_share_link_unplayable_or_foreign(tmp_path, monkeypatch):
+    monkeypatch.setattr(FakeYT, "playable", "UNPLAYABLE")
+    assert adapter(tmp_path).search(f"https://youtu.be/{VID}") == []
+    # 他サイトの URL や壊れた ID は、ふつうの検索語として扱う
+    res = adapter(tmp_path).search(f"https://example.com/watch?v={VID}")
+    assert res and res[0].title == "Found"
+    res = adapter(tmp_path).search("https://youtu.be/short")
+    assert res and res[0].title == "Found"

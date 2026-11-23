@@ -46,6 +46,23 @@
 <body>
 <h1>SOI<b>KAXA</b></h1>
 
+<!-- ゲストビュー（曲の追加を最初に見せる。専用ブラウザの小さな画面でもスクロールなしで届くように） -->
+<div id="guestView">
+  <section id="guestClosed" class="hidden"><p>ゲスト受付は停止中です。</p></section>
+  <section id="guestOpen">
+    <h2>曲を追加する</h2>
+    <p class="sub">曲名・アーティスト名で探すか、音楽アプリの「共有」→「リンクをコピー」で取ったリンクを貼って「検索」。結果の「追加」を押すと、順番が来たら流れます（1 人 <span id="guestLimit">3</span> 曲まで）。</p>
+    <form id="searchForm" class="row" role="search">
+      <input id="q" type="search" maxlength="300" placeholder="曲名、または共有リンク" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="検索">
+      <button class="primary" type="submit">検索</button>
+    </form>
+    <ul id="results"></ul>
+    <label for="guestName"><small>名前（任意・20 文字まで）。本体の画面のリストに表示されます</small></label>
+    <input id="guestName" maxlength="20" autocomplete="nickname" autocorrect="off" autocapitalize="off" spellcheck="false">
+    <p class="sub">リンクを使うときは、<b>先にリンクをコピーしてから</b>本体の QR を読んでください。この画面はアプリを切り替えると閉じます。</p>
+  </section>
+</div>
+
 <section aria-live="polite">
   <div class="now">
     <div id="disc" class="disc" aria-hidden="true"></div>
@@ -59,20 +76,7 @@
   <ul id="upcoming"></ul>
 </section>
 
-<!-- ゲストビュー -->
-<div id="guestView">
-  <section id="guestClosed" class="hidden"><p>ゲスト受付は停止中です。</p></section>
-  <section id="guestOpen">
-    <label for="guestName"><small>名前（任意・20 文字まで）</small></label>
-    <input id="guestName" maxlength="20" autocomplete="nickname" autocorrect="off" autocapitalize="off" spellcheck="false">
-    <form id="searchForm" class="row" role="search">
-      <input id="q" type="search" maxlength="100" placeholder="曲・プレイリストを検索" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="検索">
-      <button class="primary" type="submit">検索</button>
-    </form>
-    <ul id="results"></ul>
-  </section>
-  <p><a href="#owner" id="toOwner">オーナーはこちら</a></p>
-</div>
+<p id="toOwnerBox"><a href="#owner" id="toOwner">オーナーはこちら</a></p>
 
 <!-- オーナービュー -->
 <div id="ownerView" class="hidden">
@@ -230,6 +234,7 @@ async function refresh() {
     for (const u of s.upcoming) up.append(el("li", u.title + (u.added_by ? "（" + u.added_by + "）" : "")));
     $("guestOpen").classList.toggle("hidden", !s.guest_enabled && !s.is_owner);
     $("guestClosed").classList.toggle("hidden", s.guest_enabled || s.is_owner);
+    $("guestLimit").textContent = String(s.guest_queue_limit ?? 3);
     route();
   } catch (e) { $("notice").textContent = "端末に接続できません"; }
 }
@@ -270,6 +275,7 @@ function route() {
   const owner = location.hash === "#owner";
   $("guestView").classList.toggle("hidden", owner);
   $("ownerView").classList.toggle("hidden", !owner);
+  $("toOwnerBox").classList.toggle("hidden", owner);
   if (!owner || !statusCache) return;
   const logged = statusCache.is_owner;
   $("pinBox").classList.toggle("hidden", logged);

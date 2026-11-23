@@ -26,6 +26,8 @@ NAME = "ytmusic"
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{2,64}$")
 MAX_PLAYLIST_TRACKS = 500
+SHARE_HOSTS = frozenset({"music.youtube.com", "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"})
+URL_RE = re.compile(r"https?://\S+")
 YTDL_OPTS = {
     "format": "bestaudio[ext=webm]/bestaudio",
     "quiet": True,
@@ -59,6 +61,29 @@ def _artists(item: dict[str, Any]) -> str:
 def _thumb(item: dict[str, Any]) -> str | None:
     thumbs = item.get("thumbnails") or []
     return thumbs[-1].get("url") if thumbs else None
+
+
+def parse_share_link(text: str) -> tuple[str, str] | None:
+    """共有リンクから ("song", videoId) か ("playlist", playlistId) を取り出す。対象外なら None。
+
+    アプリの「リンクをコピー」で得られる music.youtube.com / youtube.com / youtu.be の URL を受け付ける。
+    前後に文章が付いていてもよい。曲とプレイリストの両方を含むときは曲を優先する。
+    """
+    m = URL_RE.search(text or "")
+    if not m:
+        return None
+    u = urlparse(m.group(0))
+    host = (u.hostname or "").lower()
+    if host not in SHARE_HOSTS:
+        return None
+    qs = parse_qs(u.query)
+    vid = u.path.strip("/") if host == "youtu.be" else (qs.get("v") or [""])[0]
+    if VIDEO_ID_RE.fullmatch(vid):
+        return ("song", vid)
+    pid = (qs.get("list") or [""])[0]
+    if u.path.rstrip("/") == "/playlist" and PLAYLIST_ID_RE.fullmatch(pid):
+        return ("playlist", pid)
+    return None
 
 
 def _expires(url: str) -> float | None:
@@ -198,6 +223,9 @@ class YTMusicAdapter:
         if not q:
             return []
         yt = self._yt(False)
+        shared = parse_share_link(q)
+        if shared:
+            return self._from_share_link(yt, *shared)
         songs = self._call(lambda: yt.search(q, filter="songs", limit=limit)) or []
         tracks: list[Track | Playlist] = [t for t in (self._track(s) for s in songs) if t]
         found = self._call(lambda: yt.search(q, filter="community_playlists", limit=5)) or []
@@ -209,6 +237,35 @@ class YTMusicAdapter:
         pls = pls[:limit]
         # プレイリストの枠を先に確保する（曲だけで上限を使い切らない）
         return tracks[: limit - len(pls)] + pls
+
+    def _from_share_link(self, yt: Any, kind: str, ident: str) -> list[Track | Playlist]:
+        """共有リンクの曲（またはプレイリスト）1 件。再生できない・見つからないときは空。"""
+        if kind == "playlist":
+            try:
+                data = self._call(lambda: yt.get_playlist(ident, limit=1)) or {}
+            except AdapterError:
+                return []
+            title = data.get("title") or "共有されたプレイリスト"
+            return [Playlist(id=ident, title=title, source=NAME, thumbnail=_thumb(data))]
+        song = self._call(lambda: yt.get_song(ident)) or {}
+        if (song.get("playabilityStatus") or {}).get("status") != "OK":
+            return []
+        d = song.get("videoDetails") or {}
+        thumb = _thumb(d.get("thumbnail") or {})
+        try:
+            duration: int | None = int(d.get("lengthSeconds") or "")
+        except (TypeError, ValueError):
+            duration = None
+        return [
+            Track(
+                id=ident,
+                title=d.get("title") or ident,
+                artist=d.get("author") or "",
+                duration_sec=duration,
+                source=NAME,
+                extra={"thumbnail": thumb} if thumb else {},
+            )
+        ]
 
     def resolve(self, track_id: str) -> Resolved:
         if not VIDEO_ID_RE.fullmatch(track_id or ""):

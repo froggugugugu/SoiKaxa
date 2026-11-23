@@ -180,10 +180,16 @@ def test_guest_playlist_expansion_only_for_searched(env):
     assert client.post("/api/queue", json={"track_id": "pub-2"}).status_code == 200
 
 
-@pytest.mark.parametrize("q", ["", "   ", "x" * 101])
+@pytest.mark.parametrize("q", ["", "   ", "x" * 301])
 def test_search_query_validation(env, q):
     client, *_ = env
     assert client.get("/api/search", params={"q": q}).status_code == 422
+
+
+def test_search_accepts_long_share_link(env):
+    """プレイリストの共有リンクは 100 文字を超えることがある。"""
+    client, *_ = env
+    assert client.get("/api/search", params={"q": "x" * 300}).status_code == 200
 
 
 def test_search_errors_mapped(env):
