@@ -383,13 +383,19 @@
   <div class="wrap">
     <div class="eyebrow">Music source</div>
     <h2>音源を登録する</h2>
-    <p>何も登録しなくても、本体に入れた MP3（フォルダ = プレイリスト）は再生できます。YouTube Music のプレイリストを使うときは、PC のブラウザで認証情報を一度だけ取り出して登録します。</p>
+    <p>何も登録しなくても、本体に入れた MP3（フォルダ = プレイリスト）は再生できます。YouTube Music のプレイリストを使うときは、PC のブラウザで認証情報（リクエストヘッダ）を一度だけ取り出して登録します。</p>
+    <div class="note">iPhone・Android のブラウザでは取り出せません（開発者ツールがないため）。Mac か Windows の PC を使ってください。わかりやすいのは Firefox です。</div>
     <ol class="steps">
-      <li><h3>PC のブラウザで music.youtube.com にログイン</h3><p>Chrome / Edge / Firefox など、開発者ツールのあるブラウザで。</p></li>
-      <li><h3>リクエストヘッダをコピー</h3><p>開発者ツール（<kbd>F12</kbd> / Mac は <kbd>⌥⌘I</kbd>）の Network タブを開き、ページを少し操作する。<code>browse</code> などの POST リクエストを選び、Request Headers をまるごとコピー。</p></li>
-      <li><h3>オーナー画面の「音源」に貼って「登録」</h3><p>スマホに送ったテキストを貼り付けます。登録できたら、音源を切り替えてプレイリストを選ぶだけ。</p></li>
+      <li><h3>PC のブラウザで music.youtube.com にログイン</h3><p>Firefox / Chrome / Edge で、<b>プライベートウィンドウ</b>（Firefox は <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>、Chrome のシークレットウィンドウは <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>。Mac は <kbd>Ctrl</kbd> を <kbd>⌘</kbd> に）を開き、使いたい Google アカウントでログインします。ふだんのウィンドウで開いたタブは Google がログイン情報をときどき入れ替えるため、本体側が早く使えなくなることがあります。</p></li>
+      <li><h3>開発者ツールの「ネットワーク」を開く</h3><p><kbd>F12</kbd> を押します（Mac は <kbd>⌥ Option</kbd> + <kbd>⌘ Command</kbd> + <kbd>I</kbd>）。開いたパネルの上にあるタブから「ネットワーク」（Network）を選び、絞り込み欄（Firefox は「URL で絞り込み」、Chrome は「フィルタ」）に <code>browse</code> と入力します。</p></li>
+      <li><h3>リクエストを出す</h3><p>YouTube Music の左メニューの「ライブラリ」や「ホーム」を<b>クリック</b>します。<kbd>F5</kbd> の再読み込みでは出てきません（最初の画面のデータはページに埋め込まれているため）。何も出ないときは、ネットワークタブの記録が止まっていないか、種類の絞り込みが「すべて」になっているかを確かめます。メソッドが <code>POST</code>、名前が <code>browse?…</code> の行を 1 つ選びます。</p></li>
+      <li><h3>リクエストヘッダをコピー</h3>
+        <p><b>Firefox:</b> 右側の「ヘッダー」タブ →「リクエストヘッダー」の右にある「生ヘッダー」（Raw）スイッチをオン → 表示されたテキストをクリックして <kbd>Ctrl</kbd>+<kbd>A</kbd>、<kbd>Ctrl</kbd>+<kbd>C</kbd>（Mac は <kbd>⌘</kbd>+<kbd>A</kbd>、<kbd>⌘</kbd>+<kbd>C</kbd>）。先頭が <code>POST /youtubei/v1/browse?…</code> になっていれば正解です。</p>
+        <p><b>Chrome / Edge:</b> 一覧のその行を右クリック →「コピー」→「リクエスト ヘッダーをコピー」（Copy request headers）。このメニューがない場合は、行を選んで「ヘッダー」タブ →「リクエスト ヘッダー」の「ソースを表示」をオンにして、全部選んでコピーします。</p>
+        <p>どちらの場合も、<code>Cookie:</code> の行が入っているか確かめてください。</p></li>
+      <li><h3>オーナー画面の「音源」に貼って「登録」</h3><p>同じ PC を本体の Wi-Fi（<code>soikaxa-XXXX</code>）につなぎ、<code>http://10.42.0.1/#owner</code> を開いて（待機中は本体の画面にもこの URL が出ています） PIN でログイン →「音源」の欄に貼り付けて「登録」。テキストが長いので、スマホに送るより PC から貼るほうが確実です。登録できたら、音源を切り替えてプレイリストを選ぶだけ。</p></li>
     </ol>
-    <div class="note c">認証情報は本体の microSD の中だけに保存され、外部には送りません。不要になったら「認証削除」、手放すときは「初期化」を。</div>
+    <div class="note c">このテキストはパスワードと同じ扱いです。人に送ったり、チャットや SNS に貼ったりしないでください。本体の microSD の中だけに保存され、外部には送りません。コピーしたら、<b>ログアウトせずに</b>プライベートウィンドウを閉じてください。ログアウトやパスワード変更をすると使えなくなります。配信の曲が取れなくなったら（本体の MP3 に切り替わったら）、同じ手順で取り直して「登録」で上書きします。不要になったら「認証削除」、手放すときは「初期化」を。</div>
   </div>
 </section>
 

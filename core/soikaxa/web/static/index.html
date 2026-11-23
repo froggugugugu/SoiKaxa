@@ -146,9 +146,17 @@
     <section data-panel="src" class="hidden">
       <label><small>音源</small><select id="adapterSel"></select></label>
       <h2>認証登録</h2>
-      <p class="sub">ログイン済みブラウザのリクエストヘッダを貼り付け（端末内のみに保存）</p>
+      <p class="sub">PC のブラウザから取り出した「リクエストヘッダ」を貼り付けます（iPhone では取り出せません）。保存先はこの本体の中だけです。</p>
+      <ol class="sub" style="padding-left:1.2em;margin:4px 0 8px">
+        <li>PC の Firefox か Chrome のプライベートウィンドウで music.youtube.com にログインする（長持ちしやすい）</li>
+        <li><kbd>F12</kbd>（Mac は <kbd>⌥⌘I</kbd>）→「ネットワーク」タブ → 絞り込み欄に <code>browse</code></li>
+        <li>ページ左の「ライブラリ」や「ホーム」をクリックし、出てきた POST の <code>browse?…</code> を選ぶ（再読み込みでは出ません）</li>
+        <li>Firefox:「ヘッダー」→「リクエストヘッダー」の「生ヘッダー」をオンにして全部コピー<br>Chrome: 行を右クリック →「コピー」→「リクエスト ヘッダーをコピー」</li>
+        <li>この欄に貼って「登録」。<code>Cookie:</code> の行が入っていれば OK</li>
+      </ol>
+      <p class="sub">このテキストはパスワードと同じ扱いです。人に送らないでください。コピーしたら、ログアウトせずにそのウィンドウを閉じてください（ログアウトすると使えなくなります）。曲が取れなくなったら取り直して登録し直します。</p>
       <ul id="authList"></ul>
-      <textarea id="authRaw" rows="5" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--field);border-radius:8px;font:inherit" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="認証ヘッダ"></textarea>
+      <textarea id="authRaw" rows="5" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--field);border-radius:8px;font:inherit" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="認証ヘッダ" placeholder="コピーしたリクエストヘッダをそのまま貼り付け"></textarea>
       <div class="row"><button id="authSave" class="primary">登録</button><button id="authDel" class="warn">認証削除</button></div>
       <h2>再生エンジンの更新</h2>
       <p class="sub">曲を取得する部品だけを更新します（毎日自動でも行います）</p>
