@@ -115,7 +115,7 @@ L4 → L3 → L2、L3 → L1、L1 → L2（型のみ）。
 │       ├── daemon.py                  # PlayerService、main()
 │       ├── adapters/
 │       │   ├── base.py                # 4 関数 I/F（変更禁止）
-│       │   ├── capabilities.py        # AuthCapable（任意 Protocol）
+│       │   ├── capabilities.py        # AuthCapable / AuthCheckable（任意 Protocol）
 │       │   ├── registry.py            # entry point 読込
 │       │   └── local_mp3.py           # ローカル MP3
 │       ├── lcd/
@@ -158,13 +158,13 @@ L4 → L3 → L2、L3 → L1、L1 → L2（型のみ）。
 | `queue` | `QueueItem`、`NowPlaying(track, origin: "queue"\|"playlist", item)`、`PlayQueue.set_playlist(id, tracks, start=0)`、`add(track, *, added_by, guest_id, play_next, limit) -> QueueItem`、`remove(item_id)`、`move(item_id, index)`、`pop_next() -> NowPlaying \| None`、`peek_next()`、`upcoming(n)`、`items()`、`clear()` | adapters.base |
 | `player` | `MpvTransport`（`send(cmd: list) -> dict`、`on_event(cb)`）、`UnixSocketTransport(path)`、`MpvPlayer(transport).play(resolved)`、`pause()`、`resume()`、`toggle()`、`stop()`、`set_volume(int)`、`position() -> float \| None`、`duration()`、`on_end(cb(reason: "eof"\|"error"\|"stop"))` | adapters.base |
 | `net` | `WifiNetwork(ssid, signal, security, channel, in_use)`、`ConnectResult(ok, reason: "ok"\|"wrong_password"\|"not_found"\|"captive_portal"\|"error", message)`、`WifiManager(runner, sta_if="wlan0", ap_if="wlan0").scan()`、`saved()`、`add_and_connect(ssid, password, *, hidden, label, priority)`、`delete(ssid)`、`start_ap(ssid, password, channel=None)`、`sta_channel()`、`sync_ap_channel()`、`has_internet(http_get)`、`wifi_qr_payload(ssid, password)`、`generate_ap_credentials(mac) -> (ssid, password)` | runner |
-| `bt` | `BtDevice(mac, name, paired, connected)`、`BluetoothManager(runner).scan(seconds=8)`、`paired()`、`pair_and_connect(mac)`、`connect(mac)`、`disconnect(mac)`、`is_connected(mac)` | runner |
+| `bt` | `BtDevice(mac, name, paired, connected)`、`BluetoothManager(runner).scan(seconds=8)`、`paired()`、`pair_and_connect(mac)`、`connect(mac)`、`disconnect(mac)`、`remove(mac)`、`is_connected(mac)` | runner |
 | `portal` | `DETECTION_PATHS`、`is_detection_request(host, path)`、`dnsmasq_config(ap_ip, interface) -> str`、`PORTAL_URL` | — |
 | `touch` | `Gesture`（TOGGLE / NEXT / SETUP_QR）、`TouchClassifier(min_sec=0.3, long_sec=1.5, setup_sec=10.0).press(t)`、`release(t) -> Gesture \| None`、`tick(t) -> Gesture \| None`、`EvdevTouchSource(path, classifier, on_gesture)` | — |
 | `health` | `HealthResult(ok, message, temperature_c)`、`check_source(adapter, probe_track_id)`、`read_temperature(runner)` | runner, adapters.base |
 | `watchdog` | `notify(msg)`、`Watchdog(interval).start()`（`NOTIFY_SOCKET` 未設定なら no-op） | — |
 | `daemon` | `PlayerService`（§5.2）、`build_service()`、`main()` | queue, state, player, adapters, config |
-| `adapters.capabilities` | `AuthCapable`（`has_auth() -> bool`、`register_auth(raw: str) -> None`、`clear_auth() -> None`） | — |
+| `adapters.capabilities` | `AuthCapable`（`has_auth() -> bool`、`register_auth(raw: str) -> None`、`clear_auth() -> None`）、`AuthCheckable`（`check_auth() -> int` = オーナーのプレイリスト数。未登録・期限切れは `AuthRequired`、他は `AdapterError`） | — |
 | `adapters.registry` | `load_adapters(data_dir) -> dict[str, SourceAdapter]`（entry point `soikaxa.adapters` の値は `factory(data_dir: Path) -> SourceAdapter`。`local` は常に含む） | adapters.* |
 | `lcd` | `render_boot(progress)`、`render_setup(qr, url)`、`render_now_playing(view, record_frame)`、`render_error(message, qr)`、`render_setup_full(qr)`、`RecordFrames.build(cover, seed)`、`to_rgb565(img) -> bytes`、`Framebuffer(path).write(img, xy=(0,0))`、`LcdController(service, fb, ...)` | daemon（読取のみ） |
 | `web` | `create_app(ctx: AppContext) -> FastAPI` | daemon, net, bt, config, auth, portal |
