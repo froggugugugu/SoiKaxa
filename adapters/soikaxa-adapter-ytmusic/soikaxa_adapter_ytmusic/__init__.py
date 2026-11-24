@@ -142,6 +142,11 @@ class YTMusicAdapter:
             self._clients.clear()
             self._owner_playlists = set()
 
+    # ---- AuthCheckable ----
+    def check_auth(self) -> int:
+        """認証付きでライブラリのプレイリスト一覧を 1 回だけ取得する（再生 URL の解決はしない）。"""
+        return len(self.list_playlists())
+
     # ---- 内部 ----
     def _yt(self, auth: bool) -> Any:
         """auth=True はオーナーの認証付き、False は未認証のクライアント。

@@ -3,7 +3,7 @@ import stat
 
 import pytest
 from soikaxa.adapters.base import AdapterError, AuthRequired, Playlist, SourceAdapter, Track
-from soikaxa.adapters.capabilities import AuthCapable
+from soikaxa.adapters.capabilities import AuthCapable, AuthCheckable
 from soikaxa_adapter_ytmusic import YTMusicAdapter, create
 
 VID = "dQw4w9WgXcQ"
@@ -110,7 +110,7 @@ def adapter(tmp_path, yt_fail=None, info=None, exc=None, setup=lambda raw: '{"co
 
 def test_protocols_and_entry_point_factory(tmp_path):
     a = create(tmp_path)
-    assert isinstance(a, SourceAdapter) and isinstance(a, AuthCapable)
+    assert isinstance(a, SourceAdapter) and isinstance(a, AuthCapable) and isinstance(a, AuthCheckable)
     assert a.auth_path == tmp_path / "adapters" / "ytmusic" / "browser.json"
 
 
@@ -154,6 +154,25 @@ def test_list_playlists_and_client_uses_auth(tmp_path):
         Playlist(id="PL2", title="Odd", track_count=None, source="ytmusic"),
     ]
     assert a.created == [str(a.auth_path)]
+
+
+def test_check_auth_counts_owner_playlists(tmp_path):
+    a = adapter(tmp_path)
+    with pytest.raises(AuthRequired):
+        a.check_auth()  # 未登録
+    a.register_auth("h")
+    assert a.check_auth() == 2
+    assert a.created == [str(a.auth_path)]  # 認証付きのクライアントで確かめる
+
+
+@pytest.mark.parametrize(
+    ("fail", "exc"), [(RuntimeError("HTTP 401"), AuthRequired), (OSError("down"), AdapterError)]
+)
+def test_check_auth_converts_errors(tmp_path, fail, exc):
+    a = adapter(tmp_path, yt_fail=fail)
+    a.register_auth("h")
+    with pytest.raises(exc):
+        a.check_auth()
 
 
 def test_list_tracks_filters_unavailable(tmp_path):

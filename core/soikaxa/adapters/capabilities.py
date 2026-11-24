@@ -18,3 +18,13 @@ class AuthCapable(Protocol):
         ...
 
     def clear_auth(self) -> None: ...
+
+
+@runtime_checkable
+class AuthCheckable(Protocol):
+    def check_auth(self) -> int:
+        """登録済みの認証で音源に 1 回だけアクセスし、オーナーのプレイリスト数を返す（疎通確認）。
+
+        未登録・期限切れは AuthRequired、それ以外の失敗は AdapterError。
+        """
+        ...

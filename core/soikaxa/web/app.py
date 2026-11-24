@@ -23,9 +23,9 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..adapters.base import AdapterError, AuthRequired, Playlist, Track
-from ..adapters.capabilities import AuthCapable
+from ..adapters.capabilities import AuthCapable, AuthCheckable
 from ..auth import PinGuard, PinLocked, SessionStore, SetupCode, hash_pin, verify_pin
-from ..bt import BluetoothManager, InvalidMac
+from ..bt import BluetoothManager, InvalidMac, validate_mac
 from ..config import SettingsStore, Speaker
 from ..daemon import PlayerService, StatusView, TrackView
 from ..net import InvalidWifiInput, WifiManager, generate_ap_credentials, wifi_qr_payload
@@ -120,6 +120,8 @@ class AppContext:
     secure_cookies: bool = False  # 端末 AP は http のみ
     setup_code: SetupCode = field(default_factory=SetupCode)
     search_limiter: RateLimiter = field(default_factory=RateLimiter)
+    # 接続テストは音源ごとに 10 秒に 1 回まで（連打でアカウントのボット判定を招かない）
+    auth_test_limiter: RateLimiter = field(default_factory=lambda: RateLimiter(limit=1, window_sec=10.0))
     # 空なら制限なし（テスト用）。実機では端末 AP のサブネットとループバックだけを許可する
     allowed_networks: tuple[Network, ...] = ()
     scrypt_slots: threading.BoundedSemaphore = field(default_factory=lambda: threading.BoundedSemaphore(2))
@@ -580,6 +582,20 @@ def create_app(ctx: AppContext) -> FastAPI:
         svc.autoplay()
         return {"ok": True, "name": name}
 
+    @app.post("/api/owner/bt/forget", dependencies=owner)
+    def bt_forget(body: s.BtConnectIn) -> dict[str, bool]:
+        """本体側のペアリング情報と記憶を消す。つながらないときに組み直す前段。
+
+        BlueZ が既に忘れていても（remove 失敗）記憶済み一覧からは消す。
+        """
+        try:
+            mac = validate_mac(body.mac)
+        except InvalidMac as e:
+            raise _err(422, "invalid", str(e)) from e
+        ctx.bt.remove(mac)
+        store.update(known_speakers=[k for k in store.load().known_speakers if k.mac != mac])
+        return {"ok": True}
+
     # ---------- オーナー: 音源認証 ----------
     def auth_adapter(name: str) -> AuthCapable:
         a = svc.adapters.get(name)
@@ -604,6 +620,38 @@ def create_app(ctx: AppContext) -> FastAPI:
         except AdapterError as e:
             raise _err(422, "invalid", str(e)) from e
         return {"ok": True}
+
+    @app.post("/api/owner/source/auth/test", dependencies=owner)
+    def auth_test(body: s.AuthTestIn) -> dict[str, Any]:
+        a = auth_adapter(body.adapter)
+        if not isinstance(a, AuthCheckable):
+            raise _err(404, "not_found")
+        if not a.has_auth():
+            return {"ok": False, "result": "unregistered", "message": "認証が未登録です"}
+        if not ctx.auth_test_limiter.allow(body.adapter):
+            raise _err(429, "rate", "少し待ってからもう一度試してください")
+        try:
+            n = a.check_auth()
+        except AuthRequired:
+            return {
+                "ok": False,
+                "result": "auth",
+                "message": "認証が切れています。ヘッダを登録し直してください",
+            }
+        except AdapterError as e:
+            if ctx.wifi.connectivity() != "online":
+                return {
+                    "ok": False,
+                    "result": "network",
+                    "message": "インターネットにつながっていません。Wi-Fi を確認してください",
+                }
+            return {"ok": False, "result": "error", "message": f"音源にアクセスできません（{e}）"}
+        return {
+            "ok": True,
+            "result": "ok",
+            "playlists": n,
+            "message": f"接続できました（プレイリスト {n} 件）",
+        }
 
     @app.delete("/api/owner/source/auth", dependencies=owner)
     def auth_delete(body: s.AuthDeleteIn) -> dict[str, bool]:
