@@ -298,7 +298,9 @@ class PlayerService:
 | `/api/owner/bt` | GET | O | 記憶・接続中 |
 | `/api/owner/bt/scan` | GET | O | スキャン |
 | `/api/owner/bt/connect` | POST | O | `{mac}`（`XX:XX:XX:XX:XX:XX` 検証） |
+| `/api/owner/bt/forget` | POST | O | `{mac}`。本体のペアリング情報（`bluetoothctl remove`）と記憶済み一覧から消す。BlueZ に無くても一覧は消す |
 | `/api/owner/source/auth` | GET / POST / DELETE | O | `AuthCapable` のアダプタ一覧と登録有無 / `{adapter, raw}` / `{adapter}` |
+| `/api/owner/source/auth/test` | POST | O | `{adapter}`。`AuthCheckable` で 1 回アクセスし `{ok, result: ok/unregistered/auth/network/error, message, playlists?}`。音源ごとに 10 秒 1 回（超過は 429） |
 | `/api/owner/update` | POST | O | `systemctl start soikaxa-update.service` |
 | `/api/owner/upgrade` | GET | O | 現在のバージョンと更新の進み具合（`docs/data-model.md` の upgrade.json） |
 | `/api/owner/upgrade/check` | POST | O | GitHub Releases の最新版を確認（通信できなければ 502） |

@@ -9,10 +9,10 @@
 
 | 項目 | 内容 |
 | ---- | ---- |
-| 最終更新 | 2026-11-23（実機での手直し） |
-| ブランチ | `feat/soikaxa-v1` |
+| 最終更新 | 2026-11-24（BT 削除・認証の接続テスト） |
+| ブランチ | `feat/bt-forget-auth-test` |
 | 起動コマンド | `SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_FAKE=1 SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon` |
-| スモークテスト | `uv run pytest` → 期待: 292 passed |
+| スモークテスト | `uv run pytest` → 期待: 303 passed |
 | 既知の壊れている箇所 | なし（実機の未確認は下表の R 項目） |
 
 ---
@@ -59,6 +59,13 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 ---
 
 ## 4. セッションログ（新しいものを上に）
+
+### 2026-11-24 — オーナー画面: BT の本体から削除 / 音源認証の接続テスト
+
+- **やったこと**: `POST /api/owner/bt/forget`（bluetoothctl remove + 記憶済み一覧から削除）と記憶済み行の「本体から削除」ボタン。`AuthCheckable.check_auth()`（認証付きでプレイリスト一覧を 1 回取得）と `POST /api/owner/source/auth/test`、「接続テスト」ボタン。ARCH_001 §8 と guide.html を更新
+- **検証**: `uv run pytest` → 303 passed / ruff 0 / mypy 0 / check_deps 0 / フェイク起動で forget・auth/test を curl 確認
+- **未完了 / 申し送り**: 実アカウントでの接続テスト（期限切れ時に ytmusicapi が例外でなく空一覧を返す場合は「OK 0 件」になる）と実機 BT の削除→再ペアリングは R。画面の見た目は未確認（Playwright 未使用）
+- **判断・却下した案**: 削除はボタン単独（ワンタップ自動つなぎ直しは不採用）/ 接続テストは認証確認のみ（再生 URL 解決までは行わない）。音源ごとに 10 秒 1 回
 
 ### 2026-11-23 — 実機での手直し（ゲスト体験・LCD・タッチ）
 
