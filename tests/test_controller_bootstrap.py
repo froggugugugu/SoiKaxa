@@ -268,6 +268,19 @@ def test_connect_speaker(rt):
     assert bootstrap.connect_speaker(rt) and rt.service.state.value == "IDLE"
 
 
+def test_forgetting_last_speaker_leaves_idle_and_playing(rt):
+    """最後の記憶スピーカーを消したら、待機中・再生中のままにせず「スピーカーなし」へ戻す。"""
+    _music(rt)
+    rt.store.update(known_speakers=[Speaker("AA:BB:CC:DD:EE:FF", "Fake")])
+    rt.service.dispatch(Event.NET_UP)
+    assert bootstrap.connect_speaker(rt)
+    rt.service.select_playlist("Mix", "local")
+    assert rt.service.state.value == "PLAYING"
+    rt.store.update(known_speakers=[])  # オーナーが「本体から削除」
+    assert not bootstrap.connect_speaker(rt)
+    assert rt.service.state.value == "ONLINE" and not rt.speaker_connected
+
+
 def _music(rt, name="Mix", n=2):
     d = rt.data_dir.parent / "music" / name
     d.mkdir(parents=True)

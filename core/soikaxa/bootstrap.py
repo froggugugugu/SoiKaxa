@@ -129,10 +129,14 @@ def connect_speaker(rt: Runtime) -> bool:
     自動再生は「未接続 → 接続」に変わったときだけ（再生が終わるたびに始め直さない）。
     """
     known = rt.store.load().known_speakers
+    svc = rt.service
     if not known:
+        # オーナーが最後の記憶スピーカーを消した直後は待機中・再生中のまま残るので、未接続時と同じく戻す
+        if svc.state in (State.IDLE, State.PLAYING):
+            svc.dispatch(Event.BT_LOST)  # → BT_CONNECTING
+            svc.dispatch(Event.BT_LOST)  # → ONLINE
         rt.speaker_connected = False
         return False
-    svc = rt.service
     connected = any(rt.bt.is_connected(sp.mac) for sp in known)
     if not connected:
         if svc.state in (State.IDLE, State.PLAYING):
