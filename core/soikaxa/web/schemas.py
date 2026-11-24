@@ -66,6 +66,10 @@ class AuthIn(BaseModel):
     raw: str = Field(min_length=1, max_length=64_000)
 
 
+class AuthTestIn(BaseModel):
+    adapter: str = Field(min_length=1, max_length=64)
+
+
 class AuthDeleteIn(BaseModel):
     adapter: str = Field(min_length=1, max_length=64)
 

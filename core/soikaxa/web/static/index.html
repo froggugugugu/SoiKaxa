@@ -149,6 +149,7 @@
       <button id="btScan">スキャン</button>
       <ul id="btList"></ul>
       <h2>記憶済み</h2>
+      <p class="sub">つながらないときは「本体から削除」→ スピーカーをペアリングモードにする → 上の「スキャン」→「接続」の順で組み直します</p>
       <ul id="btKnown"></ul>
     </section>
 
@@ -166,7 +167,8 @@
       <p class="sub">このテキストはパスワードと同じ扱いです。人に送らないでください。コピーしたら、ログアウトせずにそのウィンドウを閉じてください（ログアウトすると使えなくなります）。曲が取れなくなったら取り直して登録し直します。</p>
       <ul id="authList"></ul>
       <textarea id="authRaw" rows="5" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--field);border-radius:8px;font:inherit" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="認証ヘッダ" placeholder="コピーしたリクエストヘッダをそのまま貼り付け"></textarea>
-      <div class="row"><button id="authSave" class="primary">登録</button><button id="authDel" class="warn">認証削除</button></div>
+      <div class="row"><button id="authSave" class="primary">登録</button><button id="authTest">接続テスト</button><button id="authDel" class="warn">認証削除</button></div>
+      <p class="sub" id="authTestResult" role="status"></p>
       <h2>再生エンジンの更新</h2>
       <p class="sub">曲を取得する部品だけを更新します（毎日自動でも行います）</p>
       <button id="updateNow">今すぐ更新</button>
@@ -433,11 +435,24 @@ function btSetBusy(on, active) {
   btBusy = on;
   document.querySelectorAll('[data-panel="spk"] button').forEach((b) => { b.disabled = on; b.classList.toggle("busy", on && b === active); });
 }
-function btRow(name, hint, mac, onDone) { // 名前・状態の行・接続ボタン
+function btRow(name, hint, mac, onDone, known) { // 名前・状態の行・接続ボタン。known = 記憶済み（削除ボタンも出す）
   const li = el("li"), info = el("div", null, { class: "grow" }), st = el("div", hint.text || "", { class: hint.cls || "sub" });
   info.append(el("div", name), el("div", mac, { class: "sub" }), st); // MAC は同名機器の見分けと bluetoothctl での確認用
   const b = btn("接続", () => guard(async () => { if (await btConnect(b, st, mac, hint.wait)) onDone(); }));
-  b.disabled = btBusy; li.append(info, b); return li;
+  b.disabled = btBusy; li.append(info, b);
+  if (known) {
+    const f = btn("本体から削除", () => guard(async () => {
+      if (btBusy) return;
+      const msg = known.connected ? "接続中です。削除すると音が止まります。" : "";
+      if (!confirm(msg + name + " を本体から削除しますか？ もう一度使うにはペアリングし直します")) return;
+      btSetBusy(true, f);
+      try { await api("POST", "/api/owner/bt/forget", { mac }); toast("削除しました。スピーカーをペアリングモードにしてスキャンしてください"); }
+      finally { btSetBusy(false); }
+      onDone();
+    }), "warn");
+    f.disabled = btBusy; li.append(f);
+  }
+  return li;
 }
 async function btConnect(b, st, mac, wait) {
   if (btBusy) return false;
@@ -472,7 +487,7 @@ function loadBt() { guard(async () => {
   if (!r.known.length) ul.append(el("li", "—"));
   for (const k of r.known) {
     const hint = k.connected ? { text: "接続済み", cls: "ok" } : { text: "未接続" };
-    ul.append(btRow(k.name, { ...hint, wait: BT_WAIT_KNOWN }, k.mac, loadBt));
+    ul.append(btRow(k.name, { ...hint, wait: BT_WAIT_KNOWN }, k.mac, loadBt, { connected: k.connected }));
   }
 }); }
 
@@ -481,12 +496,19 @@ function loadSrc() { guard(async () => {
   const cfg = await api("GET", "/api/owner/settings"); const sel = $("adapterSel"); sel.replaceChildren();
   for (const a of cfg.adapters) { const o = el("option", a, { value: a }); if (a === cfg.active_adapter) o.selected = true; sel.append(o); }
   const r = await api("GET", "/api/owner/source/auth"); const ul = $("authList"); ul.replaceChildren();
+  $("authTestResult").textContent = ""; // 登録し直したあとに前回の結果を残さない
   if (!r.adapters.length) ul.append(el("li", "認証が必要な音源はありません"));
   for (const a of r.adapters) ul.append(el("li", a.adapter + ": " + (a.registered ? "登録済み" : "未登録")));
   $("authRaw").dataset.adapter = r.adapters.length ? r.adapters[0].adapter : "";
 }); }
 $("adapterSel").onchange = () => guard(async () => { await api("PATCH", "/api/owner/settings", { active_adapter: $("adapterSel").value }); toast("音源を切り替えました"); });
 $("authSave").onclick = () => guard(async () => { const a = $("authRaw").dataset.adapter; if (!a) return; await api("POST", "/api/owner/source/auth", { adapter: a, raw: $("authRaw").value }); $("authRaw").value = ""; toast("登録しました"); loadSrc(); });
+$("authTest").onclick = () => guard(async () => {
+  const a = $("authRaw").dataset.adapter, b = $("authTest"), out = $("authTestResult"); if (!a) return;
+  b.disabled = true; b.textContent = "確認中…"; out.className = "sub"; out.textContent = "";
+  try { const r = await api("POST", "/api/owner/source/auth/test", { adapter: a }); out.className = r.ok ? "ok" : "notice"; out.textContent = r.message; }
+  finally { b.disabled = false; b.textContent = "接続テスト"; }
+});
 $("authDel").onclick = () => guard(async () => { const a = $("authRaw").dataset.adapter; if (!a || !confirm("認証を削除しますか？")) return; await api("DELETE", "/api/owner/source/auth", { adapter: a }); loadSrc(); });
 $("updateNow").onclick = () => guard(async () => { const r = await api("POST", "/api/owner/update"); toast(r.ok ? "更新を開始しました" : "更新を開始できません"); });
 

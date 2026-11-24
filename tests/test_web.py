@@ -59,6 +59,14 @@ class Src:
     def clear_auth(self):
         self.auth = False
 
+    # AuthCheckable
+    fail_check = None
+
+    def check_auth(self):
+        if self.fail_check:
+            raise self.fail_check
+        return 2
+
 
 @pytest.fixture
 def env(tmp_path):
@@ -505,6 +513,33 @@ def test_known_speakers_dedupe_order_limit_and_autoplay(env):
     assert len(known) == 5 and known[0].mac == new_mac and old[-1].mac not in [k.mac for k in known]
 
 
+def test_owner_bluetooth_forget(env):
+    from soikaxa.config import Speaker
+
+    client, ctx, src, tr, runner, _ = env
+    other = Speaker("11:22:33:44:55:66", "Other")
+    ctx.store.update(known_speakers=[Speaker(MAC, "JBL"), other])
+    runner.on(["bluetoothctl", "remove"], CommandResult(0, "Device has been removed"))
+    h = login(client)
+    assert client.post("/api/owner/bt/forget", json={"mac": MAC}).status_code in (401, 403)  # CSRF 必須
+    r = client.post("/api/owner/bt/forget", json={"mac": MAC.lower()}, headers=h)
+    assert r.json() == {"ok": True}
+    assert runner.called("bluetoothctl", "remove") == [["bluetoothctl", "remove", MAC]]
+    assert ctx.store.load().known_speakers == (other,)  # 記憶済み一覧からも消える
+    assert client.post("/api/owner/bt/forget", json={"mac": "nope"}, headers=h).status_code == 422
+
+
+def test_owner_bluetooth_forget_unknown_to_bluez_still_drops_known(env):
+    from soikaxa.config import Speaker
+
+    client, ctx, src, tr, runner, _ = env
+    ctx.store.update(known_speakers=[Speaker(MAC, "JBL")])
+    runner.on(["bluetoothctl", "remove"], CommandResult(1, "Device AA:BB:CC:DD:EE:FF not available"))
+    h = login(client)
+    assert client.post("/api/owner/bt/forget", json={"mac": MAC}, headers=h).json() == {"ok": True}
+    assert ctx.store.load().known_speakers == ()  # 本体側に無くても一覧の掃除はできる
+
+
 def test_owner_bluetooth_failure(env):
     client, ctx, src, tr, runner, _ = env
     runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(1, "Failed"))
@@ -534,6 +569,92 @@ def test_owner_source_auth(env):
         "ok"
     ]
     assert not src.auth
+
+
+def _auth_test(client, h, adapter="remote"):
+    return client.post("/api/owner/source/auth/test", json={"adapter": adapter}, headers=h)
+
+
+def test_owner_source_auth_test_ok_and_unregistered(env):
+    client, ctx, src, *_ = env
+    h = login(client)
+    assert client.post("/api/owner/source/auth/test", json={"adapter": "remote"}).status_code in (401, 403)
+    r = _auth_test(client, h).json()
+    assert r["ok"] is False and r["result"] == "unregistered"  # 未登録ならアクセスしない
+    src.auth = True
+    r = _auth_test(client, h).json()
+    assert r == {"ok": True, "result": "ok", "playlists": 2, "message": "接続できました（プレイリスト 2 件）"}
+    assert _auth_test(client, h, "nope").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("err", "online", "result"),
+    [
+        (AuthRequired("期限切れ"), 204, "auth"),
+        (AdapterError("ConnectionError"), 0, "network"),
+        (AdapterError("ConnectionError"), 200, "network"),  # 上流が同意画面（キャプティブ）
+        (AdapterError("KeyError"), 204, "error"),
+    ],
+)
+def test_owner_source_auth_test_failures(env, err, online, result):
+    client, ctx, src, *_ = env
+    h = login(client)
+    src.auth = True
+    src.fail_check = err
+    ctx.wifi.http_get = lambda u: (online, "")
+    r = _auth_test(client, h).json()
+    assert r["ok"] is False and r["result"] == result and r["message"]
+
+
+def test_owner_source_auth_test_rate_limited(env):
+    client, ctx, src, *_ = env
+    h = login(client)
+    src.auth = True
+    assert _auth_test(client, h).json()["ok"]
+    assert _auth_test(client, h).status_code == 429  # 連打でアカウントに負担をかけない
+
+
+def test_owner_source_auth_test_allowed_again_after_window(env):
+    from soikaxa.web.app import RateLimiter
+
+    client, ctx, src, *_ = env
+    now = [0.0]
+    ctx.auth_test_limiter = RateLimiter(limit=1, window_sec=10.0, clock=lambda: now[0])
+    h = login(client)
+    src.auth = True
+    assert _auth_test(client, h).status_code == 200
+    now[0] = 9.9
+    assert _auth_test(client, h).status_code == 429
+    now[0] = 10.0
+    assert _auth_test(client, h).status_code == 200
+
+
+def test_owner_source_auth_test_zero_playlists_warns(env):
+    client, ctx, src, *_ = env
+    h = login(client)
+    src.auth = True
+    src.check_auth = lambda: 0
+    r = _auth_test(client, h).json()
+    assert r["ok"] is True and r["playlists"] == 0 and "認証が切れている可能性" in r["message"]
+
+
+def test_owner_source_auth_test_requires_checkable_adapter(env):
+    class AuthOnly:  # AuthCapable だが AuthCheckable ではない
+        name = "authonly"
+
+        def has_auth(self):
+            return True
+
+        def register_auth(self, raw):
+            pass
+
+        def clear_auth(self):
+            pass
+
+    client, ctx, *_ = env
+    ctx.service.adapters["authonly"] = AuthOnly()
+    h = login(client)
+    assert _auth_test(client, h, "authonly").status_code == 404
 
 
 def test_owner_update_and_reset(env):
