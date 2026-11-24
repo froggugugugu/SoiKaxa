@@ -614,6 +614,49 @@ def test_owner_source_auth_test_rate_limited(env):
     assert _auth_test(client, h).status_code == 429  # 連打でアカウントに負担をかけない
 
 
+def test_owner_source_auth_test_allowed_again_after_window(env):
+    from soikaxa.web.app import RateLimiter
+
+    client, ctx, src, *_ = env
+    now = [0.0]
+    ctx.auth_test_limiter = RateLimiter(limit=1, window_sec=10.0, clock=lambda: now[0])
+    h = login(client)
+    src.auth = True
+    assert _auth_test(client, h).status_code == 200
+    now[0] = 9.9
+    assert _auth_test(client, h).status_code == 429
+    now[0] = 10.0
+    assert _auth_test(client, h).status_code == 200
+
+
+def test_owner_source_auth_test_zero_playlists_warns(env):
+    client, ctx, src, *_ = env
+    h = login(client)
+    src.auth = True
+    src.check_auth = lambda: 0
+    r = _auth_test(client, h).json()
+    assert r["ok"] is True and r["playlists"] == 0 and "認証が切れている可能性" in r["message"]
+
+
+def test_owner_source_auth_test_requires_checkable_adapter(env):
+    class AuthOnly:  # AuthCapable だが AuthCheckable ではない
+        name = "authonly"
+
+        def has_auth(self):
+            return True
+
+        def register_auth(self, raw):
+            pass
+
+        def clear_auth(self):
+            pass
+
+    client, ctx, *_ = env
+    ctx.service.adapters["authonly"] = AuthOnly()
+    h = login(client)
+    assert _auth_test(client, h, "authonly").status_code == 404
+
+
 def test_owner_update_and_reset(env):
     client, ctx, src, tr, runner, updates = env
     h = login(client)

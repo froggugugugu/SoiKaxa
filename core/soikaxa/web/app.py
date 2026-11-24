@@ -646,12 +646,10 @@ def create_app(ctx: AppContext) -> FastAPI:
                     "message": "インターネットにつながっていません。Wi-Fi を確認してください",
                 }
             return {"ok": False, "result": "error", "message": f"音源にアクセスできません（{e}）"}
-        return {
-            "ok": True,
-            "result": "ok",
-            "playlists": n,
-            "message": f"接続できました（プレイリスト {n} 件）",
-        }
+        msg = f"接続できました（プレイリスト {n} 件）"
+        if n == 0:  # 期限切れでも例外にならず空一覧が返ることがある
+            msg += "。0 件のときは認証が切れている可能性があります。曲が取れなければ登録し直してください"
+        return {"ok": True, "result": "ok", "playlists": n, "message": msg}
 
     @app.delete("/api/owner/source/auth", dependencies=owner)
     def auth_delete(body: s.AuthDeleteIn) -> dict[str, bool]:

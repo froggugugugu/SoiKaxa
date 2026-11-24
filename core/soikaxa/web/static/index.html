@@ -435,15 +435,15 @@ function btSetBusy(on, active) {
   btBusy = on;
   document.querySelectorAll('[data-panel="spk"] button').forEach((b) => { b.disabled = on; b.classList.toggle("busy", on && b === active); });
 }
-function btRow(name, hint, mac, onDone, canForget) { // 名前・状態の行・接続ボタン（記憶済みは削除ボタンも）
+function btRow(name, hint, mac, onDone, known) { // 名前・状態の行・接続ボタン。known = 記憶済み（削除ボタンも出す）
   const li = el("li"), info = el("div", null, { class: "grow" }), st = el("div", hint.text || "", { class: hint.cls || "sub" });
   info.append(el("div", name), el("div", mac, { class: "sub" }), st); // MAC は同名機器の見分けと bluetoothctl での確認用
   const b = btn("接続", () => guard(async () => { if (await btConnect(b, st, mac, hint.wait)) onDone(); }));
   b.disabled = btBusy; li.append(info, b);
-  if (canForget) {
+  if (known) {
     const f = btn("本体から削除", () => guard(async () => {
       if (btBusy) return;
-      const msg = hint.cls === "ok" ? "接続中です。削除すると音が止まります。" : "";
+      const msg = known.connected ? "接続中です。削除すると音が止まります。" : "";
       if (!confirm(msg + name + " を本体から削除しますか？ もう一度使うにはペアリングし直します")) return;
       btSetBusy(true, f);
       try { await api("POST", "/api/owner/bt/forget", { mac }); toast("削除しました。スピーカーをペアリングモードにしてスキャンしてください"); }
@@ -487,7 +487,7 @@ function loadBt() { guard(async () => {
   if (!r.known.length) ul.append(el("li", "—"));
   for (const k of r.known) {
     const hint = k.connected ? { text: "接続済み", cls: "ok" } : { text: "未接続" };
-    ul.append(btRow(k.name, { ...hint, wait: BT_WAIT_KNOWN }, k.mac, loadBt, true));
+    ul.append(btRow(k.name, { ...hint, wait: BT_WAIT_KNOWN }, k.mac, loadBt, { connected: k.connected }));
   }
 }); }
 
@@ -496,6 +496,7 @@ function loadSrc() { guard(async () => {
   const cfg = await api("GET", "/api/owner/settings"); const sel = $("adapterSel"); sel.replaceChildren();
   for (const a of cfg.adapters) { const o = el("option", a, { value: a }); if (a === cfg.active_adapter) o.selected = true; sel.append(o); }
   const r = await api("GET", "/api/owner/source/auth"); const ul = $("authList"); ul.replaceChildren();
+  $("authTestResult").textContent = ""; // 登録し直したあとに前回の結果を残さない
   if (!r.adapters.length) ul.append(el("li", "認証が必要な音源はありません"));
   for (const a of r.adapters) ul.append(el("li", a.adapter + ": " + (a.registered ? "登録済み" : "未登録")));
   $("authRaw").dataset.adapter = r.adapters.length ? r.adapters[0].adapter : "";
