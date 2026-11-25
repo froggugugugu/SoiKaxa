@@ -98,6 +98,8 @@ def render_setup(qr_payload: str, url: str, code: str | None = None) -> Image.Im
     d.text((x, 60), "スマホでこの", font=font(24), fill=FG)
     d.text((x, 92), "QR を読んで", font=font(24), fill=FG)
     d.text((x, 124), "ください", font=font(24), fill=FG)
+    # 読んでから画面が開くまで 5〜6 秒かかる（カメラ画面のままなので読み直さないよう伝える）
+    d.text((x, 158), fit_text("開くまで 5 秒ほど待つ", font(16), w), font=font(16), fill=CYAN)
     d.text((x, 190), "開かないときは", font=font(16), fill=MUTED)
     d.text((x, 214), fit_text(url, font(18), w), font=font(18), fill=CYAN)
     _draw_code(d, (x, 248), code)
@@ -136,7 +138,9 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
     if view.guest_qr:
         img.paste(make_qr(view.guest_qr, 140), (x, 172))
         d.text((x + 150, 178), "曲を追加", font=font(16), fill=CYAN)
-        d.text((x + 150, 202), "QR を読む", font=font(14), fill=MUTED)
+        d.text((x + 150, 198), "QR を読んで", font=font(14), fill=MUTED)
+        # 読んでから専用ブラウザが開くまで 5〜6 秒かかり、その間カメラ画面のままなので何度も読み直されがち
+        d.text((x + 150, 214), "5 秒待つ", font=font(14), fill=MUTED)
     _draw_mode_button(d, view.mode)
     return img
 
