@@ -14,7 +14,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,7 @@ from ..adapters.base import AdapterError, AuthRequired, Playlist, Track
 from ..adapters.capabilities import AuthCapable, AuthCheckable
 from ..auth import PinGuard, PinLocked, SessionStore, SetupCode, hash_pin, verify_pin
 from ..bt import BluetoothManager, InvalidMac, validate_mac
-from ..config import SettingsStore, Speaker
+from ..config import MAX_SAVED_PLAYLISTS, SavedPlaylist, SettingsStore, Speaker
 from ..daemon import PlayerService, StatusView, TrackView
 from ..net import InvalidWifiInput, WifiManager, generate_ap_credentials, wifi_qr_payload
 from ..portal import PORTAL_URL, is_detection_request
@@ -126,6 +126,7 @@ class AppContext:
     allowed_networks: tuple[Network, ...] = ()
     scrypt_slots: threading.BoundedSemaphore = field(default_factory=lambda: threading.BoundedSemaphore(2))
     setup_lock: threading.Lock = field(default_factory=threading.Lock)
+    saved_lock: threading.Lock = field(default_factory=threading.Lock)  # 保存した公開プレイリストの読み書き
 
 
 # スピーカーのランプ（点滅・点灯）だけでは状態が分かりにくいので、どの段階で失敗したかと次の一手を画面で伝える
@@ -425,12 +426,62 @@ def create_app(ctx: AppContext) -> FastAPI:
             "playlists": [
                 {"id": p.id, "title": p.title, "track_count": p.track_count} for p in svc.playlists()
             ],
+            "saved": _saved_json(),
         }
 
     @app.post("/api/owner/play", dependencies=owner)
     def owner_play(body: s.PlayIn) -> dict[str, bool]:
-        svc.select_playlist(body.playlist_id)
+        if body.adapter is not None and body.adapter not in svc.adapters:
+            raise _err(422, "invalid", "この音源は使えません")
+        svc.select_playlist(body.playlist_id, body.adapter)
         return {"ok": True}
+
+    # ---------- オーナー: 保存した公開プレイリスト ----------
+    def _saved_json() -> list[dict[str, str]]:
+        return [asdict(p) for p in store.load().saved_playlists]
+
+    @app.get("/api/owner/public-playlists", dependencies=owner)
+    def public_playlists(q: str) -> dict[str, Any]:
+        """キーワードか共有リンクで公開プレイリストを探す（曲は返さない）。保存できるのはここに出たものだけ。"""
+        q = q.strip()
+        if not 1 <= len(q) <= MAX_SEARCH_CHARS:
+            raise _err(422, "invalid", f"1〜{MAX_SEARCH_CHARS} 文字で検索してください")
+        # 検索した時点の音源を覚えておく（あとで音源を切り替えてから保存しても、別の音源で保存しない）
+        found = [
+            replace(r, source=r.source or svc.active_name)
+            for r in svc.search(q, 20)
+            if isinstance(r, Playlist)
+        ]
+        for p in found:
+            ctx.cache.put(p)
+        return {"results": [{"id": p.id, "title": p.title, "adapter": p.source} for p in found]}
+
+    @app.post("/api/owner/saved-playlists", dependencies=owner)
+    def save_playlist(body: s.SavedPlaylistIn) -> dict[str, Any]:
+        pl = ctx.cache.playlist(body.playlist_id)
+        if pl is None:
+            raise _err(404, "not_found", "検索結果から選んでください")
+        entry = SavedPlaylist(adapter=pl.source or svc.active_name, id=pl.id, title=pl.title)
+        with ctx.saved_lock:  # 読んでから書くまでの間に別の保存・削除を挟ませない
+            saved = store.load().saved_playlists
+            if not any((p.adapter, p.id) == (entry.adapter, entry.id) for p in saved):
+                if len(saved) >= MAX_SAVED_PLAYLISTS:
+                    raise _err(
+                        409,
+                        "full",
+                        f"保存できるのは {MAX_SAVED_PLAYLISTS} 件までです。不要なものを削除してください",
+                    )
+                store.update(saved_playlists=[*saved, entry])
+        return {"ok": True, "saved": _saved_json()}
+
+    @app.post("/api/owner/saved-playlists/remove", dependencies=owner)
+    def remove_saved_playlist(body: s.SavedPlaylistIn) -> dict[str, Any]:
+        """音源と ID の組で消す（別の音源の同じ ID は残す）。音源を省くと ID だけで消す。"""
+        with ctx.saved_lock:
+            saved = store.load().saved_playlists
+            keep = [p for p in saved if not (p.id == body.playlist_id and body.adapter in (None, p.adapter))]
+            store.update(saved_playlists=keep)
+        return {"ok": True, "saved": _saved_json()}
 
     @app.post("/api/owner/control", dependencies=owner)
     def owner_control(body: s.ControlIn) -> dict[str, bool]:

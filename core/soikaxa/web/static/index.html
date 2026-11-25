@@ -121,6 +121,14 @@
       <ul id="queue"></ul>
       <h2>マイプレイリスト</h2>
       <ul id="playlists"></ul>
+      <h2>保存した公開プレイリスト</h2>
+      <ul id="savedPlaylists"></ul>
+      <p class="sub">キーワードで探すか、音楽アプリの「共有」→「リンクをコピー」で取ったプレイリストのリンクを貼って「探す」。「保存」したものはここから再生できます（20 件まで）。</p>
+      <form id="pubForm" class="row" role="search">
+        <input id="pubQ" type="search" maxlength="300" placeholder="キーワード、または共有リンク" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="公開プレイリストを探す">
+        <button type="submit">探す</button>
+      </form>
+      <ul id="pubResults"></ul>
     </section>
 
     <section data-panel="wifi" class="hidden">
@@ -372,8 +380,47 @@ function loadPlay() { guard(async () => {
   const pl = await api("GET", "/api/owner/playlists"); const ul = $("playlists"); ul.replaceChildren();
   if (!pl.playlists.length) ul.append(el("li", "プレイリストがありません（音源タブで認証・切替）"));
   for (const p of pl.playlists) { const li = el("li"); li.append(el("div", p.title + (p.track_count != null ? "（" + p.track_count + "）" : ""), { class: "grow" }), btn("再生", () => guard(async () => { await api("POST", "/api/owner/play", { playlist_id: p.id }); refresh(); }))); ul.append(li); }
+  renderSaved(pl.saved);
   await loadQueue();
 }).catch(() => {}); }
+// 保存した公開プレイリスト: 保存したときの音源（adapter）で再生する
+let savedIds = new Set();
+function renderSaved(saved) {
+  savedIds = new Set(saved.map((p) => p.id));
+  const ul = $("savedPlaylists"); ul.replaceChildren();
+  if (!saved.length) ul.append(el("li", "まだありません（下で探して「保存」）"));
+  for (const p of saved) {
+    const li = el("li");
+    const del = btn("削除", () => guard(async () => {
+      if (!armed(del, "もう一度押すと削除")) return;
+      const r = await api("POST", "/api/owner/saved-playlists/remove", { playlist_id: p.id, adapter: p.adapter });
+      renderSaved(r.saved); markResults();
+    }), "warn");
+    li.append(el("div", p.title || p.id, { class: "grow" }),
+      btn("再生", () => guard(async () => { await api("POST", "/api/owner/play", { playlist_id: p.id, adapter: p.adapter }); toast("再生します"); refresh(); })), del);
+    ul.append(li);
+  }
+}
+function markResults() {
+  for (const b of $("pubResults").querySelectorAll("button[data-id]")) {
+    const done = savedIds.has(b.dataset.id); b.disabled = done; b.textContent = done ? "保存済み" : "保存";
+  }
+}
+$("pubForm").onsubmit = (ev) => { ev.preventDefault(); guard(async () => {
+  const q = $("pubQ").value.trim(); if (!q) return;
+  const ul = $("pubResults"); ul.replaceChildren(el("li", "探しています…"));
+  const r = await api("GET", "/api/owner/public-playlists?q=" + encodeURIComponent(q));
+  ul.replaceChildren();
+  if (!r.results.length) ul.append(el("li", "見つかりませんでした。別の言葉か、共有リンクで試してください"));
+  for (const p of r.results) {
+    const li = el("li"); const b = btn("保存", () => guard(async () => {
+      const x = await api("POST", "/api/owner/saved-playlists", { playlist_id: p.id });
+      renderSaved(x.saved); markResults(); toast("保存しました");
+    }));
+    b.dataset.id = p.id; li.append(el("div", p.title, { class: "grow" }), b); ul.append(li);
+  }
+  markResults();
+}); };
 async function loadQueue() {
   const q = await api("GET", "/api/owner/queue"); const ul = $("queue"); ul.replaceChildren();
   if (!q.items.length) ul.append(el("li", "—"));

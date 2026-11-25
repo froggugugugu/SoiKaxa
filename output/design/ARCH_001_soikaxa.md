@@ -281,8 +281,11 @@ class PlayerService:
 | `/api/owner/setup` | POST | P（PIN 未設定時のみ） | `{pin, setup_code}` → セッション発行。`setup_code` は本体 LCD にだけ表示。403=コード違い、423=ロック中 |
 | `/api/owner/login` | POST | P | `{pin}` → `{csrf}` + Cookie。423=ロック中（照合前に判定）、429=同時照合の上限 |
 | `/api/owner/logout` | POST | O | セッション破棄 |
-| `/api/owner/playlists` | GET | O | オーナーのプレイリスト |
-| `/api/owner/play` | POST | O | `{playlist_id}` |
+| `/api/owner/playlists` | GET | O | オーナーのプレイリストと、保存した公開プレイリスト（`saved`） |
+| `/api/owner/play` | POST | O | `{playlist_id, adapter?}`（`adapter` 省略時は今の音源） |
+| `/api/owner/public-playlists?q=` | GET | O | 公開プレイリストをキーワード・共有リンクで探す（結果は保存の許可リストに入る） |
+| `/api/owner/saved-playlists` | POST | O | `{playlist_id}` 検索結果にあるものを保存（最大 20） |
+| `/api/owner/saved-playlists/remove` | POST | O | `{playlist_id, adapter?}` 保存から外す（音源と ID の組。音源を省くと ID だけで） |
 | `/api/owner/control` | POST | O | `{action: toggle\|pause\|resume\|next}` |
 | `/api/owner/volume` | POST | O | `{volume: 0-100}` |
 | `/api/owner/queue` | GET | O | キュー（guest_id 含む） |

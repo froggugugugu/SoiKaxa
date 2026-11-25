@@ -25,6 +25,7 @@
 | `guest_enabled` / `allow_play_next` | bool | 既定 true |
 | `guest_queue_limit` | int | 1〜20 に丸める。既定 3 |
 | `known_speakers` | [{mac, name}] | 先頭が最新、最大 5 |
+| `saved_playlists` | [{adapter, id, title}] | オーナーが保存した公開プレイリスト。追加順、最大 20。保存したときの音源で再生する。初期化で消える |
 | `probe_track_id` | str \| null | ヘルスチェック用の曲 ID |
 | `wifi_labels` | {ssid: label} | 会場名。Wi-Fi パスワードは NetworkManager のみに保存 |
 

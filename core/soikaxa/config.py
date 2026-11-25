@@ -53,6 +53,18 @@ class LastPlaylist:
 
 
 @dataclass(frozen=True)
+class SavedPlaylist:
+    """オーナーが保存した公開プレイリスト。保存したときの音源で再生する。"""
+
+    adapter: str
+    id: str
+    title: str = ""
+
+
+MAX_SAVED_PLAYLISTS = 20
+
+
+@dataclass(frozen=True)
 class Settings:
     schema_version: int = SCHEMA_VERSION
     device_model: str = "pi4b"
@@ -69,12 +81,14 @@ class Settings:
     allow_play_next: bool = True
     guest_queue_limit: int = 3
     known_speakers: tuple[Speaker, ...] = field(default_factory=tuple)
+    saved_playlists: tuple[SavedPlaylist, ...] = field(default_factory=tuple)
     probe_track_id: str | None = None
     wifi_labels: dict[str, str] = field(default_factory=dict)  # SSID → 会場名
 
     def to_json(self) -> dict[str, Any]:
         d = asdict(self)
         d["known_speakers"] = [asdict(s) for s in self.known_speakers]
+        d["saved_playlists"] = [asdict(p) for p in self.saved_playlists]
         return d
 
     @classmethod
@@ -87,6 +101,12 @@ class Settings:
         kw["known_speakers"] = tuple(
             Speaker(mac=s["mac"], name=s.get("name", "")) for s in sp if isinstance(s, dict) and "mac" in s
         )
+        saved = kw.get("saved_playlists") or []
+        kw["saved_playlists"] = tuple(
+            SavedPlaylist(adapter=str(p["adapter"]), id=str(p["id"]), title=str(p.get("title", "")))
+            for p in saved
+            if isinstance(p, dict) and "adapter" in p and "id" in p
+        )[:MAX_SAVED_PLAYLISTS]
         labels = kw.get("wifi_labels")
         kw["wifi_labels"] = {str(k): str(v) for k, v in labels.items()} if isinstance(labels, dict) else {}
         kw["schema_version"] = SCHEMA_VERSION
@@ -151,6 +171,8 @@ def _jsonable(changes: dict[str, Any]) -> dict[str, Any]:
             out[k] = asdict(v)
         elif k == "known_speakers":
             out[k] = [asdict(s) if isinstance(s, Speaker) else s for s in v]
+        elif k == "saved_playlists":
+            out[k] = [asdict(p) if isinstance(p, SavedPlaylist) else p for p in v]
         else:
             out[k] = v
     return out

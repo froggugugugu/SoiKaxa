@@ -10,9 +10,9 @@
 | 項目 | 内容 |
 | ---- | ---- |
 | 最終更新 | 2026-11-25（BT 接続の根本原因、LCD の文字の流れ） |
-| ブランチ | `feat/lcd-marquee-and-setup`（PR #5 `fix/bt-pair-failure-detection` の上） |
+| ブランチ | `feat/saved-public-playlists`（PR #6 `feat/lcd-marquee-and-setup` の上） |
 | 起動コマンド | `SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_FAKE=1 SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon` |
-| スモークテスト | `uv run pytest` → 期待: 333 passed |
+| スモークテスト | `uv run pytest` → 期待: 337 passed |
 | 既知の壊れている箇所 | なし（実機の未確認は下表の R 項目） |
 
 ---
@@ -59,6 +59,12 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 ---
 
 ## 4. セッションログ（新しいものを上に）
+
+### 2026-11-25 — 公開プレイリストの保存・再生
+
+- **やったこと**: オーナー画面「再生」に「保存した公開プレイリスト」。キーワード・共有リンクで探して保存（最大 20、検索結果に出たものだけ）、再生（保存時の音源で）、削除（2 回押し）。設定 `saved_playlists`、初期化で消える。API: `GET /api/owner/public-playlists`、`POST /api/owner/saved-playlists(/remove)`、`/api/owner/play` に `adapter`
+- **検証**: `uv run pytest` → 337 passed / ruff 0 / mypy 0 / check_deps 0 / フェイク起動 + Chromium（390px）で 探す → 保存 → 再生 → 削除 を操作して確認。fresh context のレビュー指摘 3 件（検索時の音源を保持、（音源, ID）の組で判定、保存・削除をロックで直列化）に対応
+- **未完了 / 申し送り**: 実アカウントの音源で、公開プレイリストの検索と再生（認証なしでも曲一覧が取れるか）は R。ブランチ `feat/saved-public-playlists`（PR #6 の上）
 
 ### 2026-11-25 — LCD の文字の流れと表示の不具合
 
