@@ -9,10 +9,10 @@
 
 | 項目 | 内容 |
 | ---- | ---- |
-| 最終更新 | 2026-11-25（BT 接続の直列化・再試行、QR の待ち時間案内） |
+| 最終更新 | 2026-11-25（BT 接続の根本原因、LCD の文字の流れ） |
 | ブランチ | `fix/bt-pair-failure-detection` |
 | 起動コマンド | `SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_FAKE=1 SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon` |
-| スモークテスト | `uv run pytest` → 期待: 326 passed |
+| スモークテスト | `uv run pytest` → 期待: 333 passed |
 | 既知の壊れている箇所 | なし（実機の未確認は下表の R 項目） |
 
 ---
@@ -59,6 +59,12 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 ---
 
 ## 4. セッションログ（新しいものを上に）
+
+### 2026-11-25 — LCD の文字の流れと表示の不具合
+
+- **やったこと**: 再生中の曲名・アーティスト名がはみ出すとき横に流す（4 秒停止 → 20px/秒）。右列の書き出しをリストの見出しにそろえ、QR 横の案内を QR の上辺にそろえる。部分書き込みで上下に割れる問題を、画面の写し + 行範囲の一括書き込みで修正。コンソールのカーソルが LCD で点滅する問題を `vt.global_cursor_default=0` で修正（`01_setup.sh`）。PR #5 作成（PR #4 の上に積む）
+- **検証**: `uv run pytest` → 333 passed / ruff 0 / mypy 0 / check_deps 0 / 流れる途中のフレームを PNG で目視
+- **未完了 / 申し送り**: 実機で未確認（割れ・速さ・カーソル）。既存の実機は cmdline.txt に手で追記して再起動が必要。PR #5 以降の 4 コミット（3b2bc7c〜）は未 push
 
 ### 2026-11-25 — BT 接続の衝突対策と QR の待ち時間案内
 
