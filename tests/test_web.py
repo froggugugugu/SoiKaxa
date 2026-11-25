@@ -128,6 +128,17 @@ def test_index_and_static_and_security_headers(env):
     assert "http://" not in r.text.replace("http://10.42.0.1", "") and "https://" not in r.text
 
 
+def test_page_does_not_use_native_dialogs():
+    """専用ブラウザでは confirm()/prompt()/alert() が出ず即キャンセル扱い。2 回押しにする。"""
+    import re
+    from pathlib import Path
+
+    import soikaxa.web
+
+    html = (Path(soikaxa.web.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+    assert re.findall(r"\b(?:confirm|prompt|alert)\(", html) == []
+
+
 @pytest.mark.parametrize(
     ("host", "path"),
     [

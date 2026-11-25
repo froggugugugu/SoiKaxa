@@ -34,6 +34,7 @@
   input[type=range] { border:none; background:transparent; padding:0; }
   button { background:transparent; color:var(--cyan); border:1px solid var(--cyan); border-radius:8px; padding:8px 12px; font:inherit; min-height:44px; min-width:44px; cursor:pointer; }
   button.primary { background:var(--cyan); color:var(--bg); } button.warn { color:var(--magenta); border-color:var(--magenta); }
+  button.armed { background:var(--magenta); color:var(--bg); border-color:var(--magenta); }
   button:disabled { opacity:.4; } button.busy:disabled { opacity:1; cursor:progress; }
   .ok { color:var(--cyan); font-size:13px; }
   .row { display:flex; gap:8px; align-items:center; margin:8px 0; } .row > * { flex:1; } .row > button { flex:none; }
@@ -133,7 +134,7 @@
         <label class="chk"><input id="wShow" type="checkbox" checked> パスワードを表示</label>
         <label><small>会場名（任意）</small><input id="wLabel" maxlength="40" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
         <p id="wConfirm" class="sub"></p>
-        <div class="row"><button type="submit" class="primary">保存して接続</button></div>
+        <div class="row"><button type="submit" class="primary" id="wSubmit">保存して接続</button></div>
       </form>
       <h2>写真から取り込む（Wi-Fi QR）</h2>
       <input id="qrFile" type="file" accept="image/*" capture="environment" aria-label="QR を撮影">
@@ -195,7 +196,7 @@
       </div>
       <h2>初期化</h2>
       <p class="sub">PIN・Wi-Fi・音源認証・スピーカーを消去します</p>
-      <button id="resetBtn" class="warn">初期化</button>
+      <div class="row"><input id="resetWord" placeholder="RESET と入力" aria-label="初期化の確認（RESET と入力）" autocorrect="off" autocapitalize="off" spellcheck="false"><button id="resetBtn" class="warn">初期化</button></div>
       <p><button id="logout">ログアウト</button></p>
     </section>
   </div>
@@ -286,7 +287,7 @@ async function loadMine() { // 自分が追加してまだ流れていない曲�
     $("mineBox").classList.toggle("hidden", !r.items.length);
     for (const it of r.items) {
       const li = el("li"); li.append(el("div", it.title, { class: "grow" }));
-      // 専用ブラウザでは confirm() が出ないことがあるので、2 回押しで確定する
+      // 専用ブラウザでは確認ダイアログ（confirm）が出ないことがあるので、2 回押しで確定する
       const b = btn("取り消す", async () => {
         if (!b.dataset.armed) {
           b.dataset.armed = "1"; b.textContent = "もう一度押すと取り消し";
@@ -348,6 +349,16 @@ document.querySelectorAll("[role=tab]").forEach((b) => b.onclick = () => {
 });
 
 function loadOwner() { loadPlay(); }
+// 専用ブラウザ（キャプティブ）では確認・入力ダイアログ（confirm / prompt）が出ずに即キャンセル扱いになるので、2 回押しで確定する。
+// 1 回目は文言を変えて false、5 秒以内の 2 回目で true。note は 1 回目にトーストで出す注意書き
+function armed(b, text, note) {
+  const reset = () => { clearTimeout(b.armTimer); b.armTimer = null; b.textContent = b.armLabel; b.classList.remove("armed"); };
+  if (b.armTimer) { reset(); return true; }
+  b.armLabel = b.textContent; b.textContent = text; b.classList.add("armed");
+  if (note) toast(note);
+  b.armTimer = setTimeout(reset, 5000);
+  return false;
+}
 async function guard(fn) { try { await fn(); } catch (e) { toast(e.message); if (e.status === 401) { csrf = null; refresh(); } } }
 
 function loadPlay() { guard(async () => {
@@ -382,7 +393,7 @@ $("wifiScan").onclick = () => guard(async () => {
   for (const n of r.networks) { const li = el("li"); li.append(el("div", n.ssid + "  " + n.signal + "%" + (n.in_use ? " 接続中" : ""), { class: "grow" }), btn("選ぶ", () => showWifiForm(n.ssid, false))); ul.append(li); }
 });
 $("wifiForm").onsubmit = (ev) => { ev.preventDefault(); guard(async () => {
-  if (!confirm($("wConfirm").textContent + " で接続しますか？")) return;
+  if (!armed($("wSubmit"), "もう一度押すと接続", $("wConfirm").textContent + " で接続します")) return;
   toast("接続中…");
   const r = await api("POST", "/api/owner/wifi", { ssid: $("wSsid").value, password: $("wPass").value, hidden: $("wHidden").checked, label: $("wLabel").value });
   toast(r.message); if (r.ok) { $("wifiForm").classList.add("hidden"); loadWifi(); }
@@ -426,7 +437,7 @@ function loadWifi() { guard(async () => {
   for (const n of r.saved) { const li = el("li"); li.append(el("div", n.label + (n.label !== n.ssid ? "（" + n.ssid + "）" : ""), { class: "grow" }), btn("削除", () => guard(async () => { await api("DELETE", "/api/owner/wifi/" + encodeURIComponent(n.ssid)); loadWifi(); }), "warn")); ul.append(li); }
   const ap = await api("GET", "/api/owner/ap"); $("apInfo").textContent = "SSID " + ap.ssid + " / パスワード " + ap.password;
 }); }
-$("apRegen").onclick = () => guard(async () => { if (!confirm("ゲストは QR を読み直す必要があります。再生成しますか？")) return; await api("POST", "/api/owner/ap/regenerate"); loadWifi(); });
+$("apRegen").onclick = () => guard(async () => { if (!armed($("apRegen"), "もう一度押すと再生成", "ゲストは QR を読み直す必要があります")) return; await api("POST", "/api/owner/ap/regenerate"); loadWifi(); });
 
 // Bluetooth
 // スキャンも接続も数秒〜数十秒かかる。終わるまでスピーカー画面のボタンを止め、押したボタンに経過を出す
@@ -443,8 +454,8 @@ function btRow(name, hint, mac, onDone, known) { // 名前・状態の行・接�
   if (known) {
     const f = btn("本体から削除", () => guard(async () => {
       if (btBusy) return;
-      const msg = known.connected ? "接続中です。削除すると音が止まります。" : "";
-      if (!confirm(msg + name + " を本体から削除しますか？ もう一度使うにはペアリングし直します")) return;
+      const note = (known.connected ? "接続中です。削除すると音が止まります。" : "") + "もう一度使うにはペアリングし直します";
+      if (!armed(f, "もう一度押すと削除", note)) return;
       btSetBusy(true, f);
       try { await api("POST", "/api/owner/bt/forget", { mac }); toast("削除しました。スピーカーをペアリングモードにしてスキャンしてください"); }
       finally { btSetBusy(false); }
@@ -509,7 +520,7 @@ $("authTest").onclick = () => guard(async () => {
   try { const r = await api("POST", "/api/owner/source/auth/test", { adapter: a }); out.className = r.ok ? "ok" : "notice"; out.textContent = r.message; }
   finally { b.disabled = false; b.textContent = "接続テスト"; }
 });
-$("authDel").onclick = () => guard(async () => { const a = $("authRaw").dataset.adapter; if (!a || !confirm("認証を削除しますか？")) return; await api("DELETE", "/api/owner/source/auth", { adapter: a }); loadSrc(); });
+$("authDel").onclick = () => guard(async () => { const a = $("authRaw").dataset.adapter; if (!a || !armed($("authDel"), "もう一度押すと削除")) return; await api("DELETE", "/api/owner/source/auth", { adapter: a }); loadSrc(); });
 $("updateNow").onclick = () => guard(async () => { const r = await api("POST", "/api/owner/update"); toast(r.ok ? "更新を開始しました" : "更新を開始できません"); });
 
 // 設定
@@ -558,14 +569,14 @@ $("upCheck").onclick = () => guard(async () => {
   } finally { $("upCheck").disabled = false; }
 });
 $("upGo").onclick = () => guard(async () => {
-  if (!confirm("更新中は音楽が数分止まります。終わったら PIN を入れ直してください。アップグレードしますか？")) return;
+  if (!armed($("upGo"), "もう一度押すと開始", "更新中は音楽が数分止まります。終わったら PIN を入れ直してください")) return;
   const r = await api("POST", "/api/owner/upgrade");
   if (!r.ok) toast((r.status && r.status.message) || "更新を開始できません");
   showUpgrade(await api("GET", "/api/owner/upgrade"));
 });
 $("touchCal").onclick = () => guard(async () => { await api("POST", "/api/owner/touch/calibrate"); toast("本体の画面の「＋」を順に押してください"); });
 $("cSave").onclick = () => guard(async () => { await api("PATCH", "/api/owner/settings", { guest_enabled: $("cGuest").checked, allow_play_next: $("cNext").checked, autoplay: $("cAuto").checked, repeat: $("cRepeat").checked, guest_queue_limit: +$("cLimit").value }); toast("保存しました"); refresh(); });
-$("resetBtn").onclick = () => guard(async () => { if (prompt("初期化するには RESET と入力") !== "RESET") return; await api("POST", "/api/owner/reset", { confirm: "RESET" }); csrf = null; toast("初期化しました"); refresh(); });
+$("resetBtn").onclick = () => guard(async () => { if ($("resetWord").value.trim() !== "RESET") { toast("確認のため RESET と入力してください"); return; } $("resetWord").value = ""; await api("POST", "/api/owner/reset", { confirm: "RESET" }); csrf = null; toast("初期化しました"); refresh(); });
 $("logout").onclick = () => guard(async () => { await api("POST", "/api/owner/logout"); csrf = null; location.hash = ""; refresh(); });
 
 refresh();

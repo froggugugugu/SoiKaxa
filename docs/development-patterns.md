@@ -33,6 +33,7 @@
 - DOM 生成は `textContent` / `createElement` のみ。`innerHTML` 禁止（CSP は `script-src 'self' 'unsafe-inline'`）
 - 外部リソースは同一オリジンのみ（jsQR は `web/static/` に同梱）。getUserMedia は使わない（ポータル簡易ブラウザで不可）
 - 入力欄は `autocorrect=off autocapitalize=off spellcheck=false`
+- `confirm()` / `prompt()` / `alert()` は使わない。キャプティブの専用ブラウザでは出ずに即キャンセル扱いになる。確認は `armed(button, 文言, 注意)` の 2 回押し、文字入力の確認は画面上の入力欄で行う（`tests/test_web.py` が検査）
 - オーナーの状態変更 API は `X-SoiKaxa-CSRF` 必須。CSRF なしのオーナー Cookie はゲスト扱い
 - ゲストが追加できるのは `SearchCache` にある ID だけ
 - PIN の初回登録は `SetupCode`（LCD にだけ表示）で本体の前にいることを確かめる。コードを API 応答やログ（実機）に出さない
@@ -72,5 +73,6 @@
 | Pillow 13 に RGB565 のパッカーがない | `tobytes("raw","BGR;16")` 非対応 | `ImageChops` によるチャンネル演算で変換（`lcd/fb.py`） |
 | 保存済み Wi-Fi の登録し直しに失敗すると元の設定まで消えた | 接続確認の前に既存プロファイルを削除していた | 仮の名前（`sknew-`）で作成 → 接続成功後に旧設定を消して改名 |
 | 実機で AP（`soikaxa-ap`）が作られず、ログにも何も出ない | polkit ルールが `50-` だったため、`49-polkit-pkla-compat.rules`（OS 付属の NetworkManager.pkla）に先に `settings.modify.system=no` を返された | ルールを `10-soikaxa.rules` にする。確認は `sudo systemd-run --uid=$USER --pipe --wait nmcli general permissions` |
+| オーナー画面の削除・再生成などが無反応（一瞬ちらつくだけ） | 専用ブラウザで `confirm()` が表示されず false を返していた | 2 回押しの `armed()` に統一し、ネイティブダイアログの使用をテストで禁止 |
 | 上流が 5GHz の DFS チャンネル（例 124）だと AP が立たない | 同じ無線チップの `uap0` は上流と同じチャンネル必須で、brcmfmac は DFS チャンネルで AP を開始できない（`AP-DISABLED`）。失敗時に上流も一度切れる | `same_radio` のとき `add_and_connect` が上流を `802-11-wireless.band bg` に固定（屋外利用も考慮）。SoiKaxa 以外が作った接続（Imager の `preconfigured`）は手順書 8.2 で手動固定 |
 | フック（PreToolUse）が `sudo` を含むコマンド文字列をブロック | ハーネスの安全ルール | `sudo` を含むスクリプトは Write ツールで作成 |
