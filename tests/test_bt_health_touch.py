@@ -54,53 +54,96 @@ def test_paired_and_info():
     assert m.name_of(MAC) == "JBL Flip"
 
 
+PAIR_OK = CommandResult(0, "Attempting to pair with AA:BB:CC:DD:EE:FF\nPairing successful")
+
+
 def test_pair_and_connect_flow():
-    r = bt_runner().on(CONNECT, CommandResult(0, "Connection successful"))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC.lower())
+    r = bt_runner().on(CONNECT, CommandResult(0, "Connection successful")).on(PAIR, PAIR_OK)
+    assert bt.BluetoothManager(r).pair_and_connect(MAC.lower()) == "ok"
     cmds = [c[1:] for c in r.calls]
     assert ["--timeout", "20", "pair", MAC] in cmds and ["trust", MAC] in cmds
 
 
 def test_already_paired_skips_pair():
     r = bt_runner("Paired: yes\nConnected: yes").on(CONNECT, CommandResult(0))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC)
+    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "ok"
     assert not r.called(*PAIR)
+
+
+def _stateful_runner(pair_result):
+    """remove / pair で `info` の Paired が変わる BlueZ を模す。"""
+    state = {"paired": True}
+
+    def on_info(argv):
+        return CommandResult(0, f"Name: JBL\nPaired: {'yes' if state['paired'] else 'no'}\nConnected: no")
+
+    def on_remove(argv):
+        state["paired"] = False
+        return CommandResult(0)
+
+    def on_pair(argv):
+        if "Pairing successful" in pair_result.stdout:
+            state["paired"] = state["repaired"] = True
+        return pair_result
+
+    def on_connect(argv):  # 古い鍵ではつながらず、組み直した後はつながる
+        ok = state.get("repaired")
+        return CommandResult(0, "Connection successful" if ok else "Failed to connect")
+
+    r = bt_runner().on(["bluetoothctl", "info"], on_info).on(["bluetoothctl", "remove"], on_remove)
+    r.on(PAIR, on_pair)
+    r.on(CONNECT, on_connect)
+    return r
 
 
 def test_stale_pairing_is_removed_and_repaired():
     """スピーカー側がペアリングを忘れた（リセット・別機器とペアリング）ときは、本体側も消して組み直す。"""
-    state = {"removed": False}
-
-    def on_remove(argv):
-        state["removed"] = True
-        return CommandResult(0)
-
-    def on_connect(argv):
-        if state["removed"]:
-            return CommandResult(0, "Connection successful")
-        return CommandResult(1, "Failed to connect")
-
-    r = bt_runner("Paired: yes\nConnected: no").on(CONNECT, on_connect)
-    r.on(["bluetoothctl", "remove"], on_remove)
-    assert bt.BluetoothManager(r).pair_and_connect(MAC)
+    r = _stateful_runner(PAIR_OK)
+    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "ok"
     cmds = [c[1:] for c in r.calls]
     order = [cmds.index(x) for x in (["remove", MAC], ["--timeout", "20", "pair", MAC], ["trust", MAC])]
     assert order == sorted(order)
 
 
 def test_stale_pairing_repair_gives_up_when_pair_fails():
-    r = bt_runner("Paired: yes\nConnected: no").on(CONNECT, CommandResult(1, "Failed to connect"))
-    r.on(PAIR, CommandResult(1, "Failed to pair"))
-    assert not bt.BluetoothManager(r).pair_and_connect(MAC)
-    assert r.called("bluetoothctl", "remove")
+    r = _stateful_runner(CommandResult(0, "Failed to pair: org.bluez.Error.AuthenticationFailed"))
+    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "pair_failed"
+    assert r.called("bluetoothctl", "remove") and not r.called("bluetoothctl", "trust")
 
 
-def test_pair_failure_and_already_exists():
-    r = bt_runner().on(PAIR, CommandResult(1, "Failed to pair"))
-    assert not bt.BluetoothManager(r).pair_and_connect(MAC)
-    r2 = bt_runner().on(PAIR, CommandResult(1, "org.bluez.Error.AlreadyExists"))
-    r2.on(CONNECT, CommandResult(0, "Connection successful"))
-    assert bt.BluetoothManager(r2).pair_and_connect(MAC)
+@pytest.mark.parametrize("code", [0, 1])
+def test_pair_failure_is_detected_from_output_not_exit_code(code):
+    """`bluetoothctl --timeout` は失敗しても終了コード 0 を返すことがある。失敗なら trust しない。"""
+    r = bt_runner().on(PAIR, CommandResult(code, "Failed to pair: org.bluez.Error.AuthenticationCanceled"))
+    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "pair_failed"
+    assert not r.called("bluetoothctl", "trust") and not r.called(*CONNECT)
+
+
+def test_pair_without_message_trusts_bluez_state():
+    r = bt_runner().on(PAIR, CommandResult(0, ""))  # 出力が取れなくても Paired: yes なら成功とみなす
+    r.on(["bluetoothctl", "info"], CommandResult(0, "Paired: yes\nConnected: no"))
+    r.on(CONNECT, CommandResult(0, "Connection successful"))
+    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "ok"
+
+
+def test_pair_target_gone_is_not_found():
+    """スキャンから時間がたち BlueZ が一覧から消した機器。"""
+    r = bt_runner("Device AA:BB:CC:DD:EE:FF not available")
+    r.on(PAIR, CommandResult(0, "Device AA:BB:CC:DD:EE:FF not available"))
+    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "not_found"
+    assert not r.called("bluetoothctl", "trust")
+
+
+def test_paired_but_connect_fails():
+    r = bt_runner().on(PAIR, PAIR_OK).on(CONNECT, CommandResult(0, "Failed to connect: org.bluez.Error"))
+    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "connect_failed"
+    assert r.called("bluetoothctl", "trust")
+
+
+def test_already_exists_counts_as_paired():
+    r = bt_runner().on(PAIR, CommandResult(1, "Failed to pair: org.bluez.Error.AlreadyExists"))
+    r.on(CONNECT, CommandResult(0, "Connection successful"))
+    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "ok"
 
 
 def test_connect_failure_and_disconnect():

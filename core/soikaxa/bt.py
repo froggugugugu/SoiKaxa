@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from .runner import CommandRunner
 
 MAC_RE = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
 _DEVICE_LINE = re.compile(r"^Device ([0-9A-Fa-f:]{17}) ?(.*)$")
+
+
+# not_found = BlueZ の一覧から消えた（スキャンから時間がたった）
+# connect_failed = ペアリングはできたが接続に失敗
+PairOutcome = Literal["ok", "not_found", "pair_failed", "connect_failed"]
 
 
 class InvalidMac(ValueError):
@@ -77,26 +83,34 @@ class BluetoothManager:
     def is_connected(self, mac: str) -> bool:
         return self.info(mac).get("Connected") == "yes"
 
-    def pair_and_connect(self, mac: str) -> bool:
+    def pair_and_connect(self, mac: str) -> PairOutcome:
         """オーナーが選んだ機器に接続する。ペアリング済みでもつながらなければ組み直す。
 
         スピーカー側がペアリングを忘れる（リセット・別機器とのペアリング）と、本体側の古い鍵では
         接続できない。ペアリングモードの機器を前にした明示操作なので、ここでだけ組み直す
         （自動再接続の `connect` では行わない。電源が切れているだけの場合があるため）。
+        画面で原因を案内できるよう、どの段階で失敗したかを返す。
         """
         mac = validate_mac(mac)
         if self.info(mac).get("Paired") == "yes":
             if self.connect(mac):
-                return True
+                return "ok"
             self.remove(mac)
-        if not self._pair(mac):
-            return False
+        paired = self._pair(mac)
+        if paired != "ok":
+            return paired  # 失敗したまま trust しない（Paired: no なのに Trusted: yes が残る）
         self._ctl("trust", mac)
-        return self.connect(mac)
+        return "ok" if self.connect(mac) else "connect_failed"
 
-    def _pair(self, mac: str) -> bool:
-        out = self.r.run(["bluetoothctl", "--timeout", "20", "pair", mac], timeout=25)
-        return out.ok or "AlreadyExists" in out.stdout + out.stderr
+    def _pair(self, mac: str) -> PairOutcome:
+        # `--timeout` 付きの bluetoothctl は失敗しても終了コード 0 で終わることがある。出力と状態で判断する
+        res = self.r.run(["bluetoothctl", "--timeout", "20", "pair", mac], timeout=25)
+        out = res.stdout + res.stderr
+        if "Pairing successful" in out or "AlreadyExists" in out:
+            return "ok"
+        if "not available" in out:
+            return "not_found"
+        return "ok" if self.info(mac).get("Paired") == "yes" else "pair_failed"
 
     def connect(self, mac: str) -> bool:
         mac = validate_mac(mac)

@@ -146,12 +146,18 @@
     </section>
 
     <section data-panel="spk" class="hidden">
-      <p class="sub">スピーカーをペアリングモードにしてからスキャン</p>
+      <p class="sub">スピーカーをペアリングモードにしてからスキャン（電源を入れるだけではペアリングモードにならない機種があります）</p>
       <button id="btScan">スキャン</button>
       <ul id="btList"></ul>
       <h2>記憶済み</h2>
-      <p class="sub">つながらないときは「本体から削除」→ スピーカーをペアリングモードにする → 上の「スキャン」→「接続」の順で組み直します</p>
       <ul id="btKnown"></ul>
+      <h2>つながらないとき</h2>
+      <ol class="sub" style="padding-left:0;margin:4px 0 8px">
+        <li>① 近くのスマホやパソコンの Bluetooth をオフにする（スピーカーが先にそちらへつながるため）</li>
+        <li>② 上の記憶済みスピーカーを「本体から削除」する</li>
+        <li>③ スピーカーをペアリングモードにする。電源を入れただけだと、前に使った機器につなぎに行くことがあります。ランプの点滅のしかたで見分ける機種が多いので、説明書で確認してください</li>
+        <li>④ いちばん上の「スキャン」→ 出てきたスピーカーの「接続」</li>
+      </ol>
     </section>
 
     <section data-panel="src" class="hidden">
@@ -457,7 +463,7 @@ function btRow(name, hint, mac, onDone, known) { // 名前・状態の行・接�
       const note = (known.connected ? "接続中です。削除すると音が止まります。" : "") + "もう一度使うにはペアリングし直します";
       if (!armed(f, "もう一度押すと削除", note)) return;
       btSetBusy(true, f);
-      try { await api("POST", "/api/owner/bt/forget", { mac }); toast("削除しました。スピーカーをペアリングモードにしてスキャンしてください"); }
+      try { await api("POST", "/api/owner/bt/forget", { mac }); toast("削除しました。スピーカーをペアリングモードにしてから「スキャン」してください"); }
       finally { btSetBusy(false); }
       onDone();
     }), "warn");
@@ -479,7 +485,7 @@ async function btConnect(b, st, mac, wait) {
   finally { clearInterval(h); b.textContent = "接続"; btSetBusy(false); }
 }
 const BT_WAIT_NEW = "接続しています。初回はペアリングも行うので 10〜20 秒ほど（最大 40 秒）";
-const BT_WAIT_KNOWN = "接続しています。数秒〜15 秒ほど。つながらないときはペアリングし直すので、スピーカーをペアリングモードにしてお待ちください（最大 1 分）";
+const BT_WAIT_KNOWN = "接続しています。数秒〜15 秒ほど。つながらないときは自動でペアリングし直すので、スピーカーをペアリングモードにしてお待ちください（最大 1 分）";
 $("btScan").onclick = () => guard(async () => {
   if (btBusy) return;
   const b = $("btScan"), ul = $("btList"), t0 = Date.now(), SEC = 8; // bt.scan() の既定秒数

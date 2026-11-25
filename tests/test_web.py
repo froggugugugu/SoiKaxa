@@ -556,7 +556,25 @@ def test_owner_bluetooth_failure(env):
     runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(1, "Failed"))
     runner.on(["bluetoothctl", "info"], CommandResult(0, "Paired: yes\nConnected: no"))
     h = login(client)
-    assert client.post("/api/owner/bt/connect", json={"mac": MAC}, headers=h).json()["ok"] is False
+    r = client.post("/api/owner/bt/connect", json={"mac": MAC}, headers=h).json()
+    assert r["ok"] is False and r["reason"] == "connect_failed"
+    assert ctx.store.load().known_speakers == ()  # つながっていない機器は記憶しない
+
+
+@pytest.mark.parametrize(
+    ("outcome", "hint"),
+    [
+        ("not_found", "もう一度「スキャン」"),
+        ("pair_failed", "ペアリングモード"),
+        ("connect_failed", "電源を入れ直"),
+    ],
+)
+def test_owner_bluetooth_failure_explains_next_step(env, monkeypatch, outcome, hint):
+    client, ctx, *_ = env
+    monkeypatch.setattr(ctx.bt, "pair_and_connect", lambda mac: outcome)
+    h = login(client)
+    r = client.post("/api/owner/bt/connect", json={"mac": MAC}, headers=h).json()
+    assert r["ok"] is False and r["reason"] == outcome and hint in r["message"]
 
 
 def test_owner_source_auth(env):
