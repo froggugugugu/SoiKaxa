@@ -98,6 +98,9 @@ if ! grep -q 'quiet' "$BOOT_CMD"; then
 fi
 # /boot/firmware/cmdline.txt に splash があれば除去
 sed -i 's/ splash//' "$BOOT_CMD"
+# コンソールのカーソルを消す。LCD がコンソールも兼ねるので、消さないと画面の上で点滅し続ける
+# （2026-11-25 実機で確認。リストの 1 曲目の中ほど・レコードの上端に出ていた）
+grep -q 'vt.global_cursor_default=0' "$BOOT_CMD" || sed -i 's/$/ vt.global_cursor_default=0/' "$BOOT_CMD"
 
 echo "== [6/6] Wi-Fi: 国コード・省電力OFF =="
 raspi-config nonint do_wifi_country JP || true

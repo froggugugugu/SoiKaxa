@@ -35,6 +35,8 @@ class Framebuffer:
     def __init__(self, path: str | Path = "/dev/fb1", width: int = WIDTH, height: int = HEIGHT):
         self.path = Path(path)
         self.width, self.height = width, height
+        # 画面全体の写し。部分書き込みでも、変わった行の範囲を 1 回の書き込みで送る
+        self._shadow = bytearray(width * height * 2)
 
     @property
     def available(self) -> bool:
@@ -44,18 +46,21 @@ class Framebuffer:
         self.write_raw(to_rgb565(img), xy, img.size)
 
     def write_raw(self, data: bytes, xy: tuple[int, int], size: tuple[int, int]) -> None:
+        """矩形を書き込む。行ごとに分けて書くと、LCD ドライバの転送が途中に入り上下に割れて見えるため、
+        写しに重ねてから、その行の範囲（全幅）をまとめて 1 回で書く。"""
         x, y = xy
         w, h = size
         if x < 0 or y < 0 or x + w > self.width or y + h > self.height:
             raise ValueError("region out of framebuffer")
         stride, row = self.width * 2, w * 2
+        if x == 0 and w == self.width:
+            self._shadow[y * stride : (y + h) * stride] = data
+        else:
+            for i in range(h):
+                start = (y + i) * stride + x * 2
+                self._shadow[start : start + row] = data[i * row : (i + 1) * row]
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT, 0o644)
         try:
-            if x == 0 and w == self.width:
-                os.pwrite(fd, data, y * stride)
-                return
-            view = memoryview(data)
-            for i in range(h):
-                os.pwrite(fd, view[i * row : (i + 1) * row], (y + i) * stride + x * 2)
+            os.pwrite(fd, memoryview(self._shadow)[y * stride : (y + h) * stride], y * stride)
         finally:
             os.close(fd)
