@@ -23,6 +23,8 @@ echo "--- 接続中のデバイス ---"
 bluetoothctl devices Connected 2>/dev/null || bluetoothctl info | head -5
 echo "--- PipeWire の BT シンク ---"
 wpctl status 2>/dev/null | grep -iA3 "sinks" || echo "wpctl が見つからない: PipeWire が user セッションで動いていない可能性。loginctl enable-linger $USER を確認"
+echo "注意: SSH でログイン中はつながっても、ログアウト中は br-connection-profile-unavailable になることがある。"
+echo "      ~/.config/wireplumber/ に 01_setup.sh の設定（80-soikaxa-*）があるか確認する"
 
 step "2. A2DP 再生スパイク (ローカル音源→次に YouTube)"
 if ! ask "テスト音を鳴らします"; then

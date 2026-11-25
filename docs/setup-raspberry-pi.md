@@ -59,7 +59,7 @@ cd ~/Development/SoiKaxa
 scripts/deploy.sh soi@soikaxa.local --music ~/Development/mp3/Test   # --music は省略可
 ```
 
-`deploy.sh` がやること: コード送信 → Pi で `scripts/install.sh`（OS 更新・mpv/BlueZ/PipeWire・LCD ドライバ・本体・権限・AP 用 `uap0`・上流の 2.4GHz 固定）→ 曲の送信 → 再起動。何度実行してもよい。
+`deploy.sh` がやること: コード送信 → Pi で `scripts/install.sh`（OS 更新・mpv/BlueZ/PipeWire（ログインなしで Bluetooth の音を出す設定を含む）・LCD ドライバとコンソールのカーソル非表示・本体・権限・AP 用 `uap0`・上流の 2.4GHz 固定）→ 曲の送信 → 再起動。何度実行してもよい。2 回目以降の送り方は「5. 開発中のコードを送る」。
 
 - 最後に `注意: ... は 2.4GHz で見つかりません` と出たら、その Wi-Fi は 5GHz 専用。再起動後に端末 AP が立たないことがある（「うまくいかないとき」の表）
 - `~/Music` やデスクトップの MP3 は macOS のプライバシー保護で `Operation not permitted` になることがある。`~/Development` などに一度コピーしてから送る
@@ -70,7 +70,7 @@ scripts/deploy.sh soi@soikaxa.local --music ~/Development/mp3/Test   # --music �
 
 1. スマホのカメラで LCD の QR を読み、`soikaxa-XXXX` に接続する。画面が自動で開く（開かなければブラウザで `http://10.42.0.1/`）
 2. 「オーナーはこちら」→ ① LCD に表示されている **6 桁の数字（設定コード）** と、② 新しい **PIN（6〜8 桁。自分で決める）** を入れて「設定」
-3. 「スピーカー」: スピーカーをペアリングモードにして「スキャン」→「接続」（初回は 10〜20 秒ほど。ボタンに経過秒数が出る）
+3. 「スピーカー」: スピーカーをペアリングモードにして「スキャン」→「接続」（初回は 10〜20 秒ほど。つながりにくいときは自動で何度か試すので最大 1 分半。ボタンに経過秒数が出る）
 4. 「再生」: 「マイプレイリスト」から選んで「再生」
 5. YouTube Music を使う場合: 「音源」に認証ヘッダを貼って「登録」（取り方は `docs/guide.html` の「音源を登録する」）
 6. 「設定」で「電源 ON で前回のプレイリストを自動再生」をオンにする
@@ -103,13 +103,17 @@ gh release create v0.2.0 --generate-notes --title v0.2.0
 
 リリースの説明文（`--generate-notes` の内容）がオーナー画面の「変更点」に出る。タグと `core/pyproject.toml` の version が違うと、本体は更新を中止する。
 
-## 5. 開発中のコードを直接送る
+## 5. 開発中のコードを送る
 
-```bash
-scripts/deploy.sh soi@soikaxa.local --code-only   # 送信 → サービス再起動（数秒）
-```
+リリース前の確認用。普段の更新は 4 の画面から行う。
 
-依存パッケージやスクリプト・systemd の定義を変えたときは `--code-only` を付けずに実行する。リリース前の確認用で、普段の更新は 4 の画面から行う。
+| コマンド | 使うとき | やること |
+| --- | --- | --- |
+| `scripts/deploy.sh soi@soikaxa.local --code-only` | Python / Web / LCD のコードだけを変えた | 送信 → サービス再起動（数秒）。設定が古い Pi には `--update` を促す |
+| `scripts/deploy.sh soi@soikaxa.local --update` | `scripts/` や `systemd/`、依存パッケージを変えた。古い Pi に最新の設定を入れる | 送信 → `install.sh --upgrade`（OS 更新なし・数分）→ サービス再起動。起動オプションを変えたときだけ再起動 |
+| `scripts/deploy.sh soi@soikaxa.local` | OS も含めて入れ直す | 初回と同じ（OS 更新込み・10〜20 分）→ 再起動 |
+
+`--music <フォルダ>` はどれとも組み合わせられる。
 
 ## 6. 動作確認チェックリスト
 
@@ -118,13 +122,15 @@ scripts/deploy.sh soi@soikaxa.local --code-only   # 送信 → サービス再�
 | 1 | QR を読むと画面が自動で開く（iPhone / Android） | 開く |
 | 2 | 設定コードなし、または違うコードでは PIN を設定できない | 「実機の画面に表示されている 6 桁の数字（設定コード）を…」と出る |
 | 3 | スピーカーから音が出る | 出る |
-| 4 | LCD に曲名・次の曲・QR が出て、レコードが回る | 回転がカクつかない |
+| 4 | LCD に曲名・次の曲・QR が出て、レコードが回る | 回転がカクつかない。画面が上下に割れない。カーソルが点滅しない |
+| 4b | 長い曲名・アーティスト名の曲を流す | 4 秒止まってから横に流れ、一周してまた止まる |
 | 5 | 画面タップ（0.3 秒以上）で一時停止/再開、1.5 秒長押しで次の曲 | 動く |
 | 6 | 10 秒長押しで設定用 QR が全面に出る | 出る（30 秒で戻る） |
 | 6b | QR 右下の表示切替ボタンを軽くタップ（3 回） | 左側が レコード → リスト → 自動 と切り替わり、右のアイコンも変わる（再生は止まらない） |
 | 7 | 別のスマホ（ゲスト）で QR → 検索 →「追加」 | LCD の「次:」に曲名と名前が出る |
 | 8 | 曲が終わると次の曲に進む | 2 曲以上続けて進む |
 | 9 | 再生中にスピーカーの電源を切って入れ直す | 30 秒程度で再接続する |
+| 9b | **SSH からログアウトした状態で**、オーナー画面からスピーカーを「接続」 | つながる（ログイン中だけつながるなら WirePlumber の設定が入っていない。「うまくいかないとき」） |
 | 10 | 電源を抜いて挿し直す | 自動で起動し、前回のプレイリストが流れる（音が出るまでの秒数を控える） |
 | 11 | `vcgencmd measure_temp` | 再生 10 分後に 70℃ 未満 |
 
@@ -138,7 +144,7 @@ ssh soi@soikaxa.local 'bash ~/soikaxa/scripts/04_report.sh' > ~/Desktop/soikaxa-
 
 ## うまくいかないとき
 
-Pi に入って調べるときは `ssh soi@soikaxa.local`（`soi` は Imager で決めたユーザー名に置き換える）。ログは `journalctl -u soikaxa@$USER -n 60 --no-pager`。
+Pi に入って調べるときは `ssh soi@soikaxa.local`（`soi` は Imager で決めたユーザー名に置き換える）。ログは `journalctl -u soikaxa@$USER -n 60 --no-pager`。`soikaxa@` の後ろは**ユーザー名**（`$USER`）で、ホスト名の `soikaxa.local` ではない（違う名前を書くと何も出ない）。
 
 | 症状 | 見るところ・直し方 |
 | --- | --- |
@@ -152,7 +158,9 @@ Pi に入って調べるときは `ssh soi@soikaxa.local`（`soi` は Imager で
 | AP に入れるが画面が開かない | ブラウザで `http://10.42.0.1/` を直接開く。開けば自動表示だけの問題（機種と OS を記録） |
 | サービスが再起動を繰り返す | 上のログを確認。`Permission denied` / `Read-only file system` ならサンドボックス設定（`systemd/soikaxa@.service` の後半）が原因の可能性。ログを共有する |
 | スピーカーの `connect` がすぐ切れる（`br-connection-unknown`） | LE 側でペアリングされた。`bluetoothctl remove <MAC>` → `sudo systemctl restart bluetooth` → Web から接続し直す（Pi は Classic 専用設定済み） |
+| アプリから「接続」してもつながらない（SSH で手作業ならつながる） | `journalctl -u soikaxa@$USER --since "10 min ago" \| grep soikaxa.bt` で失敗理由を見る。`br-connection-profile-unavailable` なら、ログインしていないと WirePlumber が Bluetooth の音を扱わない設定のまま → Mac から `scripts/deploy.sh soi@soikaxa.local --update`。確かめるときは SSH からログアウトしてから「接続」する |
 | 音が出ない | `wpctl status` の Sinks にスピーカーがあるか。`bluetoothctl info <MAC>` が `Connected: yes` か |
+| LCD の決まった場所でカーソルが点滅する | コンソールのカーソル。`grep -o vt.global_cursor_default=0 /boot/firmware/cmdline.txt` が空なら `scripts/deploy.sh soi@soikaxa.local --update`（自動で再起動する） |
 | 曲が 1 曲目で止まる | `journalctl -u soikaxa@$USER -f` を流しながら再現し、ログを共有 |
 | PIN を忘れた・ロックされた | ロックは本体を 10 秒長押しで解除。PIN を忘れたら `sudo systemctl stop soikaxa@$USER && rm /var/lib/soikaxa/settings.json && sudo systemctl start soikaxa@$USER`（設定が初期化され、新しい設定コードが LCD に出る） |
 
