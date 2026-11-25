@@ -60,6 +60,13 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 
 ## 4. セッションログ（新しいものを上に）
 
+### 2026-11-25 — 実機の BT 組み直しの不具合対応（PR #4 / #5）
+
+- **やったこと**: 専用ブラウザで confirm()/prompt() が出ず削除などが無反応 → 2 回押し `armed()` に統一（PR #4）。FUNLOGY Portable Mini2 がアプリから再接続できず手動 bluetoothctl ではつながった件 → ペアリング成否を出力と `info` で判定、失敗段階（not_found / pair_failed / connect_failed）ごとに案内、スピーカー画面に「つながらないとき」の手順（PR #5）
+- **検証**: `uv run pytest` → 316 passed / ruff 0 / mypy 0 / Chromium（playwright-core）で 2 回押しと失敗案内の表示を確認
+- **実機で分かったこと**: スピーカーは電源 ON だけでは前の機器へつなぎに行く（`Connected: yes → no` を繰り返す）。iPhone の登録解除 + ペアリングモードで `pair` が成功。PipeWire は正常
+- **未完了 / 申し送り**: `bluetoothctl --timeout` が失敗時も終了コード 0 を返すかは実機で未確認（判定は出力ベースにしたので影響なし）。PR #5 を実機で確認（削除 → ペアリングモード → スキャン → 接続）
+
 ### 2026-11-24 — オーナー画面: BT の本体から削除 / 音源認証の接続テスト
 
 - **やったこと**: `POST /api/owner/bt/forget`（bluetoothctl remove + 記憶済み一覧から削除）と記憶済み行の「本体から削除」ボタン。`AuthCheckable.check_auth()`（認証付きでプレイリスト一覧を 1 回取得）と `POST /api/owner/source/auth/test`、「接続テスト」ボタン。ARCH_001 §8 と guide.html を更新

@@ -10,6 +10,7 @@
 - テストは `soikaxa.fakes.FakeRunner().on([...prefix], CommandResult(...))` で応答を登録する。後から登録したルールが優先
 - nmcli は `-t`（terse）出力のみパースする。`\:` エスケープは `net.split_terse` で解く
 - bluetoothctl に渡す値は `bt.validate_mac` を通した MAC のみ
+- `bluetoothctl --timeout N <cmd>` の成否は終了コードで判断しない（失敗しても 0 で終わることがある）。出力（`Pairing successful` / `Connection successful`）か `info` の状態で判断する
 - mpv は `MpvTransport` を注入する。テストは `FakeTransport`（`finish()` で現在曲の EOF を発火）
 
 ## 2. 再生ループ
@@ -74,5 +75,6 @@
 | 保存済み Wi-Fi の登録し直しに失敗すると元の設定まで消えた | 接続確認の前に既存プロファイルを削除していた | 仮の名前（`sknew-`）で作成 → 接続成功後に旧設定を消して改名 |
 | 実機で AP（`soikaxa-ap`）が作られず、ログにも何も出ない | polkit ルールが `50-` だったため、`49-polkit-pkla-compat.rules`（OS 付属の NetworkManager.pkla）に先に `settings.modify.system=no` を返された | ルールを `10-soikaxa.rules` にする。確認は `sudo systemd-run --uid=$USER --pipe --wait nmcli general permissions` |
 | オーナー画面の削除・再生成などが無反応（一瞬ちらつくだけ） | 専用ブラウザで `confirm()` が表示されず false を返していた | 2 回押しの `armed()` に統一し、ネイティブダイアログの使用をテストで禁止 |
+| スピーカーを削除して組み直しても「接続できません」としか出ず、手動の bluetoothctl ならつながった | スピーカーが電源 ON だけで前の機器（スマホ・古い鍵の本体）につなぎに行き、ペアリングが成立していなかった。アプリは `pair` の終了コードを信じて先へ進み（`Paired: no` なのに `Trusted: yes`）、失敗の段階を伝えられなかった | 成否を出力と `info` で判定し、`not_found` / `pair_failed` / `connect_failed` ごとに次の一手を画面に出す。スピーカー画面に「つながらないとき」の手順 |
 | 上流が 5GHz の DFS チャンネル（例 124）だと AP が立たない | 同じ無線チップの `uap0` は上流と同じチャンネル必須で、brcmfmac は DFS チャンネルで AP を開始できない（`AP-DISABLED`）。失敗時に上流も一度切れる | `same_radio` のとき `add_and_connect` が上流を `802-11-wireless.band bg` に固定（屋外利用も考慮）。SoiKaxa 以外が作った接続（Imager の `preconfigured`）は手順書 8.2 で手動固定 |
 | フック（PreToolUse）が `sudo` を含むコマンド文字列をブロック | ハーネスの安全ルール | `sudo` を含むスクリプトは Write ツールで作成 |

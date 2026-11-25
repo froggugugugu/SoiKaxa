@@ -158,7 +158,7 @@ L4 → L3 → L2、L3 → L1、L1 → L2（型のみ）。
 | `queue` | `QueueItem`、`NowPlaying(track, origin: "queue"\|"playlist", item)`、`PlayQueue.set_playlist(id, tracks, start=0)`、`add(track, *, added_by, guest_id, play_next, limit) -> QueueItem`、`remove(item_id)`、`move(item_id, index)`、`pop_next() -> NowPlaying \| None`、`peek_next()`、`upcoming(n)`、`items()`、`clear()` | adapters.base |
 | `player` | `MpvTransport`（`send(cmd: list) -> dict`、`on_event(cb)`）、`UnixSocketTransport(path)`、`MpvPlayer(transport).play(resolved)`、`pause()`、`resume()`、`toggle()`、`stop()`、`set_volume(int)`、`position() -> float \| None`、`duration()`、`on_end(cb(reason: "eof"\|"error"\|"stop"))` | adapters.base |
 | `net` | `WifiNetwork(ssid, signal, security, channel, in_use)`、`ConnectResult(ok, reason: "ok"\|"wrong_password"\|"not_found"\|"captive_portal"\|"error", message)`、`WifiManager(runner, sta_if="wlan0", ap_if="wlan0").scan()`、`saved()`、`add_and_connect(ssid, password, *, hidden, label, priority)`、`delete(ssid)`、`start_ap(ssid, password, channel=None)`、`sta_channel()`、`sync_ap_channel()`、`has_internet(http_get)`、`wifi_qr_payload(ssid, password)`、`generate_ap_credentials(mac) -> (ssid, password)` | runner |
-| `bt` | `BtDevice(mac, name, paired, connected)`、`BluetoothManager(runner).scan(seconds=8)`、`paired()`、`pair_and_connect(mac)`、`connect(mac)`、`disconnect(mac)`、`remove(mac)`、`is_connected(mac)` | runner |
+| `bt` | `BtDevice(mac, name, paired, connected)`、`BluetoothManager(runner).scan(seconds=8)`、`paired()`、`pair_and_connect(mac) -> PairOutcome`（`ok` / `not_found` / `pair_failed` / `connect_failed`）、`connect(mac)`、`disconnect(mac)`、`remove(mac)`、`is_connected(mac)` | runner |
 | `portal` | `DETECTION_PATHS`、`is_detection_request(host, path)`、`dnsmasq_config(ap_ip, interface) -> str`、`PORTAL_URL` | — |
 | `touch` | `Gesture`（TOGGLE / NEXT / SETUP_QR）、`TouchClassifier(min_sec=0.3, long_sec=1.5, setup_sec=10.0).press(t)`、`release(t) -> Gesture \| None`、`tick(t) -> Gesture \| None`、`EvdevTouchSource(path, classifier, on_gesture)` | — |
 | `health` | `HealthResult(ok, message, temperature_c)`、`check_source(adapter, probe_track_id)`、`read_temperature(runner)` | runner, adapters.base |
@@ -297,7 +297,7 @@ class PlayerService:
 | `/api/owner/ap/regenerate` | POST | O | AP パスワード再生成 |
 | `/api/owner/bt` | GET | O | 記憶・接続中 |
 | `/api/owner/bt/scan` | GET | O | スキャン |
-| `/api/owner/bt/connect` | POST | O | `{mac}`（`XX:XX:XX:XX:XX:XX` 検証） |
+| `/api/owner/bt/connect` | POST | O | `{mac}`（`XX:XX:XX:XX:XX:XX` 検証）→ `{ok, name}` / 失敗時 `{ok: false, reason, message}`（`reason` は `PairOutcome`、`message` は次の一手） |
 | `/api/owner/bt/forget` | POST | O | `{mac}`。本体のペアリング情報（`bluetoothctl remove`）と記憶済み一覧から消す。BlueZ に無くても一覧は消す |
 | `/api/owner/source/auth` | GET / POST / DELETE | O | `AuthCapable` のアダプタ一覧と登録有無 / `{adapter, raw}` / `{adapter}` |
 | `/api/owner/source/auth/test` | POST | O | `{adapter}`。`AuthCheckable` で 1 回アクセスし `{ok, result: ok/unregistered/auth/network/error, message, playlists?}`。音源ごとに 10 秒 1 回（超過は 429） |
