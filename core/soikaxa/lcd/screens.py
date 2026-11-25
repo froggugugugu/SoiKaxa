@@ -17,12 +17,34 @@ LIST_BOX = (0, 0, 230, HEIGHT)  # リスト表示で使う左側の領域（レ�
 MODE_BUTTON = (388, 230, 476, 308)  # QR の右。左側の表示モードを切り替えるボタン（枠 = タップ領域）
 MODE_LABELS = {"disc": "レコード", "list": "リスト", "auto": "自動"}
 TOP_Y = 14  # 画面上端の書き出し。リストの見出し「次に流れる曲」と再生中の右列で共通
-# 再生中の曲名の帯（x0, y0, x1, y1）。長い曲名はこの中を横に流す（コントローラが帯だけを部分書き込みする）
-TITLE_BOX = (240, 4, 470, 46)
-TITLE_SIZE = 24
-MARQUEE_PAUSE_SEC = 2.0  # 先頭を見せて止まる時間
-MARQUEE_SPEED = 32.0  # px/秒
+MARQUEE_PAUSE_SEC = 4.0  # 先頭を見せて止まる時間
+MARQUEE_SPEED = 20.0  # px/秒（8 FPS で 1 コマ 2〜3px。速いと読みにくい）
 MARQUEE_GAP = 48  # 末尾と、続けて流れてくる先頭との間
+
+
+@dataclass(frozen=True)
+class Strip:
+    """再生中の右列で、はみ出すと横に流す行（曲名・アーティスト）。
+
+    コントローラはこの帯（box = x0, y0, x1, y1）だけを部分書き込みして流す。
+    """
+
+    box: tuple[int, int, int, int]
+    size: int  # 文字の大きさ
+    text_y: int | None = None  # 画面上の書き出し。None なら字面の上端をリストの見出し（16px）にそろえる
+
+    @property
+    def width(self) -> int:
+        return self.box[2] - self.box[0]
+
+    def y(self) -> int:
+        if self.text_y is not None:
+            return self.text_y
+        return TOP_Y + int(font(16).getbbox("次")[1] - font(self.size).getbbox("次")[1])
+
+
+TITLE = Strip((240, 4, 470, 46), 24)
+ARTIST = Strip((240, 46, 470, 78), 18, text_y=48)
 
 
 @dataclass(frozen=True)
@@ -49,6 +71,7 @@ class NowPlayingView:
     queue_rows: tuple[QueueRow, ...] | None = None  # None ならレコード、あれば左側に次の曲のリスト
     mode: str = "disc"  # ボタンで選んだ表示モード: disc / list / auto
     title_offset: int = 0  # 長い曲名を流している途中の位置（px）
+    artist_offset: int = 0
 
 
 def _canvas() -> tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -71,40 +94,40 @@ def fit_text(text: str, f: Font, max_width: int) -> str:
     return text[:lo] + ell
 
 
-def _title_width(title: str) -> float:
-    return font(TITLE_SIZE).getlength(title)
+def _text_width(text: str, strip: Strip) -> float:
+    return font(strip.size).getlength(text)
 
 
-def title_overflows(title: str) -> bool:
-    return _title_width(title) > TITLE_BOX[2] - TITLE_BOX[0]
+def overflows(text: str, strip: Strip = TITLE) -> bool:
+    return _text_width(text, strip) > strip.width
 
 
-def marquee_offset(title: str, elapsed: float) -> int:
-    """曲名が表示されてから elapsed 秒後の位置。収まる曲名は常に 0。
+def marquee_offset(text: str, elapsed: float, strip: Strip = TITLE) -> int:
+    """表示されてから elapsed 秒後の位置。収まる文字は常に 0。
 
     先頭で止まる → 左へ流れる → 続けて流れてきた先頭がもとの位置に来たら、また止まる。
     """
-    if not title_overflows(title):
+    if not overflows(text, strip):
         return 0
-    span = _title_width(title) + MARQUEE_GAP
+    span = _text_width(text, strip) + MARQUEE_GAP
     phase = max(0.0, elapsed) % (MARQUEE_PAUSE_SEC + span / MARQUEE_SPEED)
     return 0 if phase < MARQUEE_PAUSE_SEC else int((phase - MARQUEE_PAUSE_SEC) * MARQUEE_SPEED)
 
 
-def render_title(title: str, offset: int = 0) -> Image.Image:
-    """曲名の帯（TITLE_BOX の大きさ）。収まらない曲名は offset だけ左へずらし、後ろに先頭を続ける。"""
-    x0, y0, x1, y1 = TITLE_BOX
+def render_strip(
+    text: str, offset: int = 0, strip: Strip = TITLE, fill: tuple[int, int, int] = FG
+) -> Image.Image:
+    """帯（strip.box の大きさ）。収まらない文字は offset だけ左へずらし、後ろに先頭を続ける。"""
+    x0, y0, x1, y1 = strip.box
     img = Image.new("RGB", (x1 - x0, y1 - y0), BG)
     d = ImageDraw.Draw(img)
-    # 曲名は字が大きい。字面の上端をリストの見出し（16px）にそろえる
-    ty = TOP_Y + font(16).getbbox("次")[1] - font(TITLE_SIZE).getbbox("次")[1] - y0
-    f = font(TITLE_SIZE)
-    if not title_overflows(title):
-        d.text((0, ty), title, font=f, fill=FG)
+    ty, f = strip.y() - y0, font(strip.size)
+    if not overflows(text, strip):
+        d.text((0, ty), text, font=f, fill=fill)
         return img
-    span = int(_title_width(title)) + MARQUEE_GAP
-    d.text((-offset, ty), title, font=f, fill=FG)
-    d.text((span - offset, ty), title, font=f, fill=FG)
+    span = int(_text_width(text, strip)) + MARQUEE_GAP
+    d.text((-offset, ty), text, font=f, fill=fill)
+    d.text((span - offset, ty), text, font=f, fill=fill)
     return img
 
 
@@ -151,6 +174,11 @@ def render_setup(qr_payload: str, url: str, code: str | None = None) -> Image.Im
     return img
 
 
+def artist_line(view: NowPlayingView) -> tuple[str, tuple[int, int, int]]:
+    """アーティスト行の文字と色。待機中はオーナー画面の URL を出す。"""
+    return (view.hint, CYAN) if view.hint else (view.artist, MUTED)
+
+
 def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) -> Image.Image:
     img, d = _canvas()
     if view.queue_rows is None:
@@ -158,11 +186,9 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
     else:
         _draw_queue(d, view.queue_rows)
     x, w = 240, WIDTH - 250
-    img.paste(render_title(view.title or "—", view.title_offset), TITLE_BOX[:2])
-    if view.hint:
-        d.text((x, 48), fit_text(view.hint, font(18), w), font=font(18), fill=CYAN)
-    else:
-        d.text((x, 48), fit_text(view.artist, font(18), w), font=font(18), fill=MUTED)
+    img.paste(render_strip(view.title or "—", view.title_offset), TITLE.box[:2])
+    sub, sub_fill = artist_line(view)
+    img.paste(render_strip(sub, view.artist_offset, ARTIST, sub_fill), ARTIST.box[:2])
     # 進捗
     y = 82
     d.rectangle([x, y, x + w, y + 4], fill=(0x1C, 0x24, 0x2C))

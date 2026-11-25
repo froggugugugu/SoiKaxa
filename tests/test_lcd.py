@@ -46,6 +46,23 @@ def test_framebuffer_full_and_region_writes(tmp_path):
         f.write(Image.new("RGB", (3, 1)), xy=(2, 0))
 
 
+def test_region_write_is_one_full_width_write(tmp_path, monkeypatch):
+    """部分書き込みも、行ごとではなく行の範囲をまとめて 1 回で書く（途中で転送されて上下に割れない）。"""
+    path = tmp_path / "fb"
+    f = fb.Framebuffer(path, width=4, height=3)
+    f.write(Image.new("RGB", (4, 3), (0, 0, 0)))
+    calls = []
+    orig = fb.os.pwrite
+
+    def rec(fd, b, off):
+        calls.append((len(b), off))
+        return orig(fd, b, off)
+
+    monkeypatch.setattr(fb.os, "pwrite", rec)
+    f.write(Image.new("RGB", (2, 2), (255, 255, 255)), xy=(1, 1))
+    assert calls == [(2 * 4 * 2, 1 * 4 * 2)]
+
+
 def test_qr_size_and_contrast():
     q = make_qr("WIFI:T:WPA;S:soikaxa-ABCD;P:abcdefghjk;;", 140)
     assert q.size == (140, 140)
@@ -184,29 +201,45 @@ LONG_TITLE = "とても長い曲名のテスト — Extended Version (Live at So
 def test_marquee_offset_pauses_then_scrolls_and_loops():
     """長い曲名は先頭で止まってから左へ流れ、一周したらまた止まる。収まる曲名は動かない。"""
     assert screens.marquee_offset("短い曲", 10.0) == 0
-    assert screens.title_overflows(LONG_TITLE)
+    assert screens.overflows(LONG_TITLE)
     pause, speed = screens.MARQUEE_PAUSE_SEC, screens.MARQUEE_SPEED
     assert screens.marquee_offset(LONG_TITLE, 0.0) == 0
     assert screens.marquee_offset(LONG_TITLE, pause - 0.1) == 0
     assert screens.marquee_offset(LONG_TITLE, pause + 1.0) == int(speed)
-    span = theme.font(screens.TITLE_SIZE).getlength(LONG_TITLE) + screens.MARQUEE_GAP
+    span = theme.font(screens.TITLE.size).getlength(LONG_TITLE) + screens.MARQUEE_GAP
     cycle = pause + span / speed
     assert screens.marquee_offset(LONG_TITLE, cycle + 0.5) == 0  # 2 周目の先頭で止まる
 
 
 def test_render_title_scrolls_long_title_without_ellipsis():
-    x0, y0, x1, y1 = screens.TITLE_BOX
-    short = screens.render_title("短い曲")
+    x0, y0, x1, y1 = screens.TITLE.box
+    short = screens.render_strip("短い曲")
     assert short.size == (x1 - x0, y1 - y0)
-    a, b = screens.render_title(LONG_TITLE, 0), screens.render_title(LONG_TITLE, 40)
+    a, b = screens.render_strip(LONG_TITLE, 0), screens.render_strip(LONG_TITLE, 40)
     assert a.tobytes() != b.tobytes()
-    span = int(theme.font(screens.TITLE_SIZE).getlength(LONG_TITLE)) + screens.MARQUEE_GAP
+    span = int(theme.font(screens.TITLE.size).getlength(LONG_TITLE)) + screens.MARQUEE_GAP
     # 一周ずらすと最初と同じ絵になる（つなぎ目がない）
-    assert screens.render_title(LONG_TITLE, span).tobytes() == a.tobytes()
+    assert screens.render_strip(LONG_TITLE, span).tobytes() == a.tobytes()
 
 
 def test_now_playing_draws_title_strip_at_offset():
     v = screens.NowPlayingView(title=LONG_TITLE, guest_qr="X")
     img = screens.render_now_playing(replace(v, title_offset=40))
-    strip = img.crop(screens.TITLE_BOX)
-    assert strip.tobytes() == screens.render_title(LONG_TITLE, 40).tobytes()
+    strip = img.crop(screens.TITLE.box)
+    assert strip.tobytes() == screens.render_strip(LONG_TITLE, 40).tobytes()
+
+
+def test_artist_line_scrolls_like_title():
+    """アーティスト名も、はみ出すときは同じように流す。待機中の URL はシアンのまま。"""
+    long = "The Very Long Artist Name Orchestra feat. Someone Else"
+    assert screens.overflows(long, screens.ARTIST) and not screens.overflows("YOASOBI", screens.ARTIST)
+    assert screens.marquee_offset(long, screens.MARQUEE_PAUSE_SEC + 1.0, screens.ARTIST) > 0
+    v = screens.NowPlayingView(title="曲", artist=long, guest_qr="X", artist_offset=30)
+    img = screens.render_now_playing(v)
+    expect = screens.render_strip(long, 30, screens.ARTIST, theme.MUTED)
+    assert img.crop(screens.ARTIST.box).tobytes() == expect.tobytes()
+    assert screens.artist_line(replace(v, hint="http://10.42.0.1/#owner"))[1] == theme.CYAN
+
+
+def test_title_and_artist_strips_do_not_overlap():
+    assert screens.TITLE.box[3] <= screens.ARTIST.box[1]

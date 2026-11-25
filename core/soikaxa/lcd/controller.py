@@ -8,6 +8,7 @@ import threading
 import time
 import urllib.request
 from collections.abc import Callable
+from dataclasses import dataclass, replace
 from io import BytesIO
 from pathlib import Path
 
@@ -19,21 +20,25 @@ from ..touch import CAL_TARGETS, Point, TouchCal, solve_calibration
 from .fb import Framebuffer, to_rgb565
 from .record import DIAMETER, RecordFrames, record_disc
 from .screens import (
+    ARTIST,
     MODE_BUTTON,
     RECORD_XY,
-    TITLE_BOX,
+    TITLE,
     NowPlayingView,
     QueueRow,
+    Strip,
+    artist_line,
     marquee_offset,
+    overflows,
     render_boot,
     render_calibration,
     render_error,
     render_now_playing,
     render_setup,
     render_setup_full,
-    render_title,
-    title_overflows,
+    render_strip,
 )
+from .theme import FG
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +86,14 @@ class CoverLoader:
             return None
 
 
+@dataclass
+class _Line:
+    text: str = ""
+    fill: tuple[int, int, int] = FG
+    since: float = 0.0  # この文字を出し始めた時刻（流す位置の起点）
+    drawn: int | None = None  # 画面に書いてある位置
+
+
 class LcdController:
     def __init__(
         self,
@@ -120,9 +133,8 @@ class LcdController:
         self._added_until = 0.0
         self._highlight: str | None = None
         self._seen_items: set[str] | None = None
-        self._title = ""  # 通常画面に出している曲名（長ければ帯だけを流す）
-        self._title_since = clock()
-        self._title_drawn: tuple[str, int] | None = None
+        # 通常画面の曲名・アーティスト行。はみ出すものは帯だけを部分書き込みして横に流す
+        self._lines: dict[Strip, _Line] = {TITLE: _Line(since=clock()), ARTIST: _Line(since=clock())}
         self._stop = threading.Event()
         service.on_change(self.invalidate)
 
@@ -162,11 +174,8 @@ class LcdController:
             notice = MSG_NO_SPEAKER
         nxt = st.upcoming[0] if st.upcoming else None
         rows = self._queue_rows(st.upcoming)
-        title = (st.now.title if st.now else "待機中") or "—"
-        if title != self._title:
-            self._title, self._title_since = title, self.clock()  # 曲が変わったら先頭から
-        return "now", NowPlayingView(
-            title=title,
+        view = NowPlayingView(
+            title=(st.now.title if st.now else "待機中") or "—",
             artist=st.now.artist if st.now else "",
             position=st.position,
             duration=st.duration,
@@ -179,11 +188,19 @@ class LcdController:
             hint="" if st.now else self.portal_url + "#owner",
             queue_rows=rows,
             mode=self._mode,
-            title_offset=self._marquee(),
         )
+        self._set_line(TITLE, view.title, FG)
+        self._set_line(ARTIST, *artist_line(view))
+        return "now", replace(view, title_offset=self._marquee(TITLE), artist_offset=self._marquee(ARTIST))
 
-    def _marquee(self) -> int:
-        return marquee_offset(self._title, self.clock() - self._title_since)
+    def _set_line(self, strip: Strip, text: str, fill: tuple[int, int, int]) -> None:
+        line = self._lines[strip]
+        if (text, fill) != (line.text, line.fill):
+            self._lines[strip] = _Line(text, fill, since=self.clock())  # 変わったら先頭から
+
+    def _marquee(self, strip: Strip) -> int:
+        line = self._lines[strip]
+        return marquee_offset(line.text, self.clock() - line.since, strip)
 
     def _queue_rows(self, upcoming: list[TrackView]) -> tuple[QueueRow, ...] | None:
         """左側をリストにするなら行を、レコードにするなら None を返す。"""
@@ -316,7 +333,8 @@ class LcdController:
             data = _splice(data, frames.shown, RECORD_XY, DIAMETER, self.fb.width)
         self.fb.write_raw(data, (0, 0), img.size)
         self._last_screen = name
-        self._title_drawn = (self._title, self._marquee()) if name == "now" else None
+        for strip, line in self._lines.items():
+            line.drawn = self._marquee(strip) if name == "now" else None
         return name
 
     def tick(self) -> None:
@@ -334,18 +352,20 @@ class LcdController:
         if self._last_screen == "now" and not self._last_list and self.svc.is_playing and self._frames:
             self.fb.write_raw(self._frames.next(), RECORD_XY, (DIAMETER, DIAMETER))
         if self._last_screen == "now":
-            self._scroll_title()
+            for strip in self._lines:
+                self._scroll(strip)
 
-    def _scroll_title(self) -> None:
-        """長い曲名だけ、帯を部分書き込みして横に流す（位置が変わったときだけ書く）。"""
-        if not title_overflows(self._title):
+    def _scroll(self, strip: Strip) -> None:
+        """はみ出す行だけ、帯を部分書き込みして横に流す（位置が変わったときだけ書く）。"""
+        line = self._lines[strip]
+        if not overflows(line.text, strip):
             return
-        drawn = (self._title, self._marquee())
-        if drawn == self._title_drawn:
+        offset = self._marquee(strip)
+        if offset == line.drawn:
             return
-        strip = render_title(*drawn)
-        self.fb.write_raw(to_rgb565(strip), TITLE_BOX[:2], strip.size)
-        self._title_drawn = drawn
+        img = render_strip(line.text, offset, strip, line.fill)
+        self.fb.write_raw(to_rgb565(img), strip.box[:2], img.size)
+        line.drawn = offset
 
     def start(self) -> None:  # pragma: no cover - スレッドループ
         def loop() -> None:
