@@ -93,7 +93,7 @@ def env(tmp_path):
         service=svc,
         store=store,
         wifi=WifiManager(runner, http_get=lambda u: (204, "")),
-        bt=BluetoothManager(runner),
+        bt=BluetoothManager(runner, sleep=lambda s: None),
         pin_guard=PinGuard(max_attempts=3, lockout_sec=60),
         run_update=lambda: updates.append(1) or True,
     )

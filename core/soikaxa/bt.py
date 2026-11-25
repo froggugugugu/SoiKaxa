@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from .runner import CommandRunner
+from .runner import CommandResult, CommandRunner
+
+log = logging.getLogger(__name__)
 
 MAC_RE = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
 _DEVICE_LINE = re.compile(r"^Device ([0-9A-Fa-f:]{17}) ?(.*)$")
@@ -36,6 +42,12 @@ class BtDevice:
     connected: bool = False
 
 
+def _log_failure(op: str, mac: str, res: CommandResult) -> None:
+    """失敗の理由（`org.bluez.Error.*`）を journal に残す。画面の案内だけでは原因を追えないため。"""
+    out = " | ".join(s.strip() for s in (res.stdout, res.stderr) if s.strip())
+    log.warning("bt %s %s 失敗 (rc=%d): %s", op, mac, res.returncode, out[-500:] or "出力なし")
+
+
 def _parse_devices(stdout: str) -> list[tuple[str, str]]:
     out = []
     for line in stdout.splitlines():
@@ -55,8 +67,27 @@ def _parse_info(stdout: str) -> dict[str, str]:
 
 
 class BluetoothManager:
-    def __init__(self, runner: CommandRunner):
+    """接続系の操作（connect / pair / remove）は 1 本のロックで直列にする。
+
+    監視ループの自動再接続とオーナーの「接続」が同時に `connect` を送ると、BlueZ は片方を
+    `InProgress` で失敗させる。手動側はその失敗を古い鍵と見なして組み直しに進み、
+    つながりかけた接続まで壊していた。
+    """
+
+    # ペアリング直後はスピーカーが自分から接続しに来ることがあり、すぐの connect がぶつかる
+    PAIR_SETTLE_SEC = 2.0
+    RETRY_WAIT_SEC = 2.0
+
+    def __init__(self, runner: CommandRunner, sleep: Callable[[float], None] = time.sleep):
         self.r = runner
+        self._sleep = sleep
+        self._lock = threading.RLock()
+        self._manual = False
+
+    @property
+    def busy(self) -> bool:
+        """オーナーの接続操作中。監視ループはこの間、自動再接続を休む。"""
+        return self._manual
 
     def _ctl(self, *args: str, timeout: float = 15.0) -> str:
         return self.r.run(["bluetoothctl", *args], timeout=timeout).stdout
@@ -92,15 +123,26 @@ class BluetoothManager:
         画面で原因を案内できるよう、どの段階で失敗したかを返す。
         """
         mac = validate_mac(mac)
+        self._manual = True  # ロック待ちの間も、監視ループに次の自動再接続を始めさせない
+        try:
+            with self._lock:
+                return self._pair_and_connect(mac)
+        finally:
+            self._manual = False
+
+    def _pair_and_connect(self, mac: str) -> PairOutcome:
         if self.info(mac).get("Paired") == "yes":
-            if self.connect(mac):
+            # 一度の失敗で消さない（電源を入れた直後・スピーカー側からの接続と重なっただけのことがある）
+            if self._connect_retry(mac, attempts=2):
                 return "ok"
+            log.warning("bt: %s は記憶済みの鍵でつながらないため、ペアリングし直します", mac)
             self.remove(mac)
         paired = self._pair(mac)
         if paired != "ok":
             return paired  # 失敗したまま trust しない（Paired: no なのに Trusted: yes が残る）
         self._ctl("trust", mac)
-        return "ok" if self.connect(mac) else "connect_failed"
+        self._sleep(self.PAIR_SETTLE_SEC)
+        return "ok" if self._connect_retry(mac, attempts=3) else "connect_failed"
 
     def _pair(self, mac: str) -> PairOutcome:
         # `--timeout` 付きの bluetoothctl は失敗しても終了コード 0 で終わることがある。出力と状態で判断する
@@ -109,20 +151,45 @@ class BluetoothManager:
         if "Pairing successful" in out or "AlreadyExists" in out:
             return "ok"
         if "not available" in out:
+            _log_failure("pair", mac, res)
             return "not_found"
-        return "ok" if self.info(mac).get("Paired") == "yes" else "pair_failed"
+        if self.info(mac).get("Paired") == "yes":
+            return "ok"
+        _log_failure("pair", mac, res)
+        return "pair_failed"
+
+    def _connect_retry(self, mac: str, attempts: int) -> bool:
+        for i in range(attempts):
+            if i:
+                self._sleep(self.RETRY_WAIT_SEC)
+                if self.is_connected(mac):  # 待つ間にスピーカー側からつながった
+                    return True
+            if self._connect_once(mac):
+                return True
+        return False
 
     def connect(self, mac: str) -> bool:
+        """1 回だけ接続を試す（監視ループの自動再接続用）。手動の操作中はそちらが終わるまで待つ。"""
         mac = validate_mac(mac)
+        with self._lock:
+            return self._connect_once(mac)
+
+    def _connect_once(self, mac: str) -> bool:
         res = self.r.run(["bluetoothctl", "--timeout", "15", "connect", mac], timeout=20)
-        return res.ok and ("Connection successful" in res.stdout or self.is_connected(mac))
+        # pair と同じく終了コードは当てにしない。出力か BlueZ の状態で判断する
+        if "Connection successful" in res.stdout or self.is_connected(mac):
+            return True
+        _log_failure("connect", mac, res)
+        return False
 
     def disconnect(self, mac: str) -> bool:
         return self.r.run(["bluetoothctl", "disconnect", validate_mac(mac)]).ok
 
     def remove(self, mac: str) -> bool:
         """ペアリング情報ごと削除する（初期化用）。"""
-        return self.r.run(["bluetoothctl", "remove", validate_mac(mac)]).ok
+        mac = validate_mac(mac)
+        with self._lock:
+            return self.r.run(["bluetoothctl", "remove", mac]).ok
 
     def name_of(self, mac: str) -> str:
         return self.info(mac).get("Name", "")

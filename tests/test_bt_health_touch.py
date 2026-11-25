@@ -21,6 +21,11 @@ CONNECT = ["bluetoothctl", "--timeout", "15", "connect"]
 PAIR = ["bluetoothctl", "--timeout", "20", "pair"]
 
 
+def mgr(r, sleeps=None):
+    """待ち時間（ペアリング直後・再試行の間）を実際には眠らず記録する。"""
+    return bt.BluetoothManager(r, sleep=(sleeps.append if sleeps is not None else lambda s: None))
+
+
 def bt_runner(info="Paired: no\nConnected: no\nName: JBL Flip"):
     return (
         FakeRunner()
@@ -39,7 +44,7 @@ def test_validate_mac():
 
 def test_scan_lists_named_devices_with_paired_flag():
     r = bt_runner()
-    devs = bt.BluetoothManager(r).scan(seconds=3)
+    devs = mgr(r).scan(seconds=3)
     assert [(d.mac, d.name, d.paired) for d in devs] == [
         (MAC, "JBL Flip", True),
         ("77:88:99:AA:BB:CC", "Sony", False),
@@ -48,7 +53,7 @@ def test_scan_lists_named_devices_with_paired_flag():
 
 
 def test_paired_and_info():
-    m = bt.BluetoothManager(bt_runner("Name: JBL Flip\nPaired: yes\nConnected: yes"))
+    m = mgr(bt_runner("Name: JBL Flip\nPaired: yes\nConnected: yes"))
     p = m.paired()
     assert p[0].connected and p[0].paired
     assert m.name_of(MAC) == "JBL Flip"
@@ -59,14 +64,14 @@ PAIR_OK = CommandResult(0, "Attempting to pair with AA:BB:CC:DD:EE:FF\nPairing s
 
 def test_pair_and_connect_flow():
     r = bt_runner().on(CONNECT, CommandResult(0, "Connection successful")).on(PAIR, PAIR_OK)
-    assert bt.BluetoothManager(r).pair_and_connect(MAC.lower()) == "ok"
+    assert mgr(r).pair_and_connect(MAC.lower()) == "ok"
     cmds = [c[1:] for c in r.calls]
     assert ["--timeout", "20", "pair", MAC] in cmds and ["trust", MAC] in cmds
 
 
 def test_already_paired_skips_pair():
     r = bt_runner("Paired: yes\nConnected: yes").on(CONNECT, CommandResult(0))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "ok"
+    assert mgr(r).pair_and_connect(MAC) == "ok"
     assert not r.called(*PAIR)
 
 
@@ -99,7 +104,7 @@ def _stateful_runner(pair_result):
 def test_stale_pairing_is_removed_and_repaired():
     """スピーカー側がペアリングを忘れた（リセット・別機器とペアリング）ときは、本体側も消して組み直す。"""
     r = _stateful_runner(PAIR_OK)
-    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "ok"
+    assert mgr(r).pair_and_connect(MAC) == "ok"
     cmds = [c[1:] for c in r.calls]
     order = [cmds.index(x) for x in (["remove", MAC], ["--timeout", "20", "pair", MAC], ["trust", MAC])]
     assert order == sorted(order)
@@ -107,7 +112,7 @@ def test_stale_pairing_is_removed_and_repaired():
 
 def test_stale_pairing_repair_gives_up_when_pair_fails():
     r = _stateful_runner(CommandResult(0, "Failed to pair: org.bluez.Error.AuthenticationFailed"))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "pair_failed"
+    assert mgr(r).pair_and_connect(MAC) == "pair_failed"
     assert r.called("bluetoothctl", "remove") and not r.called("bluetoothctl", "trust")
 
 
@@ -115,7 +120,7 @@ def test_stale_pairing_repair_gives_up_when_pair_fails():
 def test_pair_failure_is_detected_from_output_not_exit_code(code):
     """`bluetoothctl --timeout` は失敗しても終了コード 0 を返すことがある。失敗なら trust しない。"""
     r = bt_runner().on(PAIR, CommandResult(code, "Failed to pair: org.bluez.Error.AuthenticationCanceled"))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "pair_failed"
+    assert mgr(r).pair_and_connect(MAC) == "pair_failed"
     assert not r.called("bluetoothctl", "trust") and not r.called(*CONNECT)
 
 
@@ -123,31 +128,119 @@ def test_pair_without_message_trusts_bluez_state():
     r = bt_runner().on(PAIR, CommandResult(0, ""))  # 出力が取れなくても Paired: yes なら成功とみなす
     r.on(["bluetoothctl", "info"], CommandResult(0, "Paired: yes\nConnected: no"))
     r.on(CONNECT, CommandResult(0, "Connection successful"))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "ok"
+    assert mgr(r).pair_and_connect(MAC) == "ok"
 
 
 def test_pair_target_gone_is_not_found():
     """スキャンから時間がたち BlueZ が一覧から消した機器。"""
     r = bt_runner("Device AA:BB:CC:DD:EE:FF not available")
     r.on(PAIR, CommandResult(0, "Device AA:BB:CC:DD:EE:FF not available"))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "not_found"
+    assert mgr(r).pair_and_connect(MAC) == "not_found"
     assert not r.called("bluetoothctl", "trust")
+
+
+def test_connect_after_pair_waits_and_retries():
+    """ペアリング直後の connect はスピーカー側の接続とぶつかりやすい。待ってから、失敗しても数回試す。"""
+    tries = []
+
+    def on_connect(argv):
+        tries.append(argv)
+        busy = "Failed to connect: org.bluez.Error.InProgress br-connection-busy"
+        return CommandResult(0, busy if len(tries) < 3 else "Connection successful")
+
+    r = bt_runner().on(PAIR, PAIR_OK).on(CONNECT, on_connect)
+    sleeps = []
+    assert mgr(r, sleeps).pair_and_connect(MAC) == "ok"
+    assert len(tries) == 3
+    cmds = [c[1:] for c in r.calls]
+    assert cmds.index(["trust", MAC]) < cmds.index(["--timeout", "15", "connect", MAC])
+    assert sleeps[0] == bt.BluetoothManager.PAIR_SETTLE_SEC and len(sleeps) == 3
+
+
+def test_retry_succeeds_when_speaker_connected_by_itself():
+    """待つ間にスピーカー側からつながったら、もう connect を送らずに成功とする。"""
+    state = {"n": 0}
+
+    def on_info(argv):
+        return CommandResult(0, f"Paired: yes\nConnected: {'yes' if state['n'] else 'no'}")
+
+    def on_connect(argv):
+        state["n"] += 1
+        return CommandResult(0, "Failed to connect: org.bluez.Error.InProgress")
+
+    r = bt_runner().on(["bluetoothctl", "info"], on_info).on(CONNECT, on_connect)
+    assert mgr(r).pair_and_connect(MAC) == "ok"
+    assert state["n"] == 1 and not r.called("bluetoothctl", "remove")
+
+
+def test_known_speaker_is_not_removed_after_one_failure():
+    """記憶済みの鍵は 1 回の失敗では消さない（電源投入直後の一時的な失敗のことがある）。"""
+    n = []
+
+    def on_connect(argv):
+        n.append(1)
+        return CommandResult(0, "Connection successful" if len(n) == 2 else "Failed to connect")
+
+    r = bt_runner("Paired: yes\nConnected: no").on(CONNECT, on_connect)
+    assert mgr(r).pair_and_connect(MAC) == "ok"
+    assert not r.called("bluetoothctl", "remove") and not r.called(*PAIR)
+
+
+def test_connect_uses_output_not_exit_code():
+    r = bt_runner().on(CONNECT, CommandResult(1, "Connection successful"))
+    assert mgr(r).connect(MAC)
+
+
+def test_failure_output_is_logged(caplog):
+    failed = CommandResult(0, "Failed to connect: org.bluez.Error.Failed")
+    r = bt_runner().on(PAIR, PAIR_OK).on(CONNECT, failed)
+    with caplog.at_level("WARNING", logger="soikaxa.bt"):
+        assert mgr(r).pair_and_connect(MAC) == "connect_failed"
+    assert "org.bluez.Error.Failed" in caplog.text
+
+
+def test_manual_connect_blocks_auto_connect():
+    """オーナーの接続中は busy になり、監視ループの connect はロックで後回しになる。"""
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    seen = {}
+
+    def on_pair(argv):
+        started.set()
+        release.wait(5)
+        return PAIR_OK
+
+    r = bt_runner().on(PAIR, on_pair).on(CONNECT, CommandResult(0, "Connection successful"))
+    m = mgr(r)
+    t = threading.Thread(target=lambda: seen.setdefault("manual", m.pair_and_connect(MAC)))
+    t.start()
+    assert started.wait(5) and m.busy
+    auto = threading.Thread(target=lambda: seen.setdefault("auto", m.connect(MAC)))
+    auto.start()
+    auto.join(0.2)
+    assert auto.is_alive()  # 手動の操作が終わるまで connect を送らない
+    assert not r.called(*CONNECT)
+    release.set()
+    t.join(5)
+    auto.join(5)
+    assert seen == {"manual": "ok", "auto": True} and not m.busy
 
 
 def test_paired_but_connect_fails():
     r = bt_runner().on(PAIR, PAIR_OK).on(CONNECT, CommandResult(0, "Failed to connect: org.bluez.Error"))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "connect_failed"
+    assert mgr(r).pair_and_connect(MAC) == "connect_failed"
     assert r.called("bluetoothctl", "trust")
 
 
 def test_already_exists_counts_as_paired():
     r = bt_runner().on(PAIR, CommandResult(1, "Failed to pair: org.bluez.Error.AlreadyExists"))
     r.on(CONNECT, CommandResult(0, "Connection successful"))
-    assert bt.BluetoothManager(r).pair_and_connect(MAC) == "ok"
+    assert mgr(r).pair_and_connect(MAC) == "ok"
 
 
 def test_connect_failure_and_disconnect():
-    m = bt.BluetoothManager(bt_runner().on(CONNECT, CommandResult(1, "Failed")))
+    m = mgr(bt_runner().on(CONNECT, CommandResult(1, "Failed")))
     assert not m.connect(MAC)
     assert m.disconnect(MAC)
 
@@ -297,7 +390,7 @@ def test_press_while_pressed_keeps_first_timestamp():
 
 def test_bt_remove():
     r = bt_runner()
-    assert bt.BluetoothManager(r).remove(MAC.lower())
+    assert mgr(r).remove(MAC.lower())
     assert r.calls[-1] == ["bluetoothctl", "remove", MAC]
 
 

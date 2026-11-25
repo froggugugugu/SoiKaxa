@@ -268,6 +268,16 @@ def test_connect_speaker(rt):
     assert bootstrap.connect_speaker(rt) and rt.service.state.value == "IDLE"
 
 
+def test_connect_speaker_skips_while_owner_is_connecting(rt):
+    """オーナーの「接続」中は自動再接続を送らず、状態も動かさない（同時 connect で互いに失敗させない）。"""
+    rt.service.dispatch(Event.NET_UP)
+    rt.store.update(known_speakers=[Speaker("AA:BB:CC:DD:EE:FF", "Fake")])
+    rt.bt._manual = True
+    n = len(rt.runner.calls)
+    assert not bootstrap.connect_speaker(rt)
+    assert len(rt.runner.calls) == n and rt.service.state.value == "ONLINE"
+
+
 def test_forgetting_last_speaker_leaves_idle_and_playing(rt):
     """最後の記憶スピーカーを消したら、待機中・再生中のままにせず「スピーカーなし」へ戻す。"""
     _music(rt)
