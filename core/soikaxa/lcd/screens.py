@@ -139,12 +139,14 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
         d.text((x, 144), fit_text(view.notice, font(14), w), font=font(14), fill=MAGENTA)
     # ゲスト QR（静止）
     if view.guest_qr:
-        img.paste(make_qr(view.guest_qr, 140), (x, 166))
-        # 実機の Noto CJK は字面が下寄りに出る。最終行が表示切替ボタン（上端 y=230）にかからない位置にする
-        d.text((x + 150, 168), "曲を追加", font=font(16), fill=CYAN)
-        d.text((x + 150, 186), "QR を読んで", font=font(14), fill=MUTED)
+        qr_y = 166
+        img.paste(make_qr(view.guest_qr, 140), (x, qr_y))
+        # 案内の字面の上端を QR の上辺にそろえる（フォントごとの上の余白を差し引く）
+        ty = qr_y - font(16).getbbox("曲")[1]
+        d.text((x + 150, ty), "曲を追加", font=font(16), fill=CYAN)
+        d.text((x + 150, ty + 18), "QR を読んで", font=font(14), fill=MUTED)
         # 読んでから専用ブラウザが開くまで 5〜6 秒かかり、その間カメラ画面のままなので何度も読み直されがち
-        d.text((x + 150, 202), "5 秒待つ", font=font(14), fill=MUTED)
+        d.text((x + 150, ty + 34), "5 秒待つ", font=font(14), fill=MUTED)
     _draw_mode_button(d, view.mode)
     return img
 
