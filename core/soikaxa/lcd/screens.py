@@ -17,6 +17,12 @@ LIST_BOX = (0, 0, 230, HEIGHT)  # リスト表示で使う左側の領域（レ�
 MODE_BUTTON = (388, 230, 476, 308)  # QR の右。左側の表示モードを切り替えるボタン（枠 = タップ領域）
 MODE_LABELS = {"disc": "レコード", "list": "リスト", "auto": "自動"}
 TOP_Y = 14  # 画面上端の書き出し。リストの見出し「次に流れる曲」と再生中の右列で共通
+# 再生中の曲名の帯（x0, y0, x1, y1）。長い曲名はこの中を横に流す（コントローラが帯だけを部分書き込みする）
+TITLE_BOX = (240, 4, 470, 46)
+TITLE_SIZE = 24
+MARQUEE_PAUSE_SEC = 2.0  # 先頭を見せて止まる時間
+MARQUEE_SPEED = 32.0  # px/秒
+MARQUEE_GAP = 48  # 末尾と、続けて流れてくる先頭との間
 
 
 @dataclass(frozen=True)
@@ -42,6 +48,7 @@ class NowPlayingView:
     hint: str = ""  # 待機中だけ: ブラウザで開く URL（アーティスト行に出す）
     queue_rows: tuple[QueueRow, ...] | None = None  # None ならレコード、あれば左側に次の曲のリスト
     mode: str = "disc"  # ボタンで選んだ表示モード: disc / list / auto
+    title_offset: int = 0  # 長い曲名を流している途中の位置（px）
 
 
 def _canvas() -> tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -62,6 +69,43 @@ def fit_text(text: str, f: Font, max_width: int) -> str:
         else:
             hi = mid - 1
     return text[:lo] + ell
+
+
+def _title_width(title: str) -> float:
+    return font(TITLE_SIZE).getlength(title)
+
+
+def title_overflows(title: str) -> bool:
+    return _title_width(title) > TITLE_BOX[2] - TITLE_BOX[0]
+
+
+def marquee_offset(title: str, elapsed: float) -> int:
+    """曲名が表示されてから elapsed 秒後の位置。収まる曲名は常に 0。
+
+    先頭で止まる → 左へ流れる → 続けて流れてきた先頭がもとの位置に来たら、また止まる。
+    """
+    if not title_overflows(title):
+        return 0
+    span = _title_width(title) + MARQUEE_GAP
+    phase = max(0.0, elapsed) % (MARQUEE_PAUSE_SEC + span / MARQUEE_SPEED)
+    return 0 if phase < MARQUEE_PAUSE_SEC else int((phase - MARQUEE_PAUSE_SEC) * MARQUEE_SPEED)
+
+
+def render_title(title: str, offset: int = 0) -> Image.Image:
+    """曲名の帯（TITLE_BOX の大きさ）。収まらない曲名は offset だけ左へずらし、後ろに先頭を続ける。"""
+    x0, y0, x1, y1 = TITLE_BOX
+    img = Image.new("RGB", (x1 - x0, y1 - y0), BG)
+    d = ImageDraw.Draw(img)
+    # 曲名は字が大きい。字面の上端をリストの見出し（16px）にそろえる
+    ty = TOP_Y + font(16).getbbox("次")[1] - font(TITLE_SIZE).getbbox("次")[1] - y0
+    f = font(TITLE_SIZE)
+    if not title_overflows(title):
+        d.text((0, ty), title, font=f, fill=FG)
+        return img
+    span = int(_title_width(title)) + MARQUEE_GAP
+    d.text((-offset, ty), title, font=f, fill=FG)
+    d.text((span - offset, ty), title, font=f, fill=FG)
+    return img
 
 
 def _fmt(sec: float | None) -> str:
@@ -114,9 +158,7 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
     else:
         _draw_queue(d, view.queue_rows)
     x, w = 240, WIDTH - 250
-    # 曲名は字が大きい。字面の上端をリストの見出し（16px）にそろえる
-    title_y = TOP_Y + font(16).getbbox("次")[1] - font(24).getbbox("次")[1]
-    d.text((x, title_y), fit_text(view.title or "—", font(24), w), font=font(24), fill=FG)
+    img.paste(render_title(view.title or "—", view.title_offset), TITLE_BOX[:2])
     if view.hint:
         d.text((x, 48), fit_text(view.hint, font(18), w), font=font(18), fill=CYAN)
     else:

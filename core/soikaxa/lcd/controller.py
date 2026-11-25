@@ -21,14 +21,18 @@ from .record import DIAMETER, RecordFrames, record_disc
 from .screens import (
     MODE_BUTTON,
     RECORD_XY,
+    TITLE_BOX,
     NowPlayingView,
     QueueRow,
+    marquee_offset,
     render_boot,
     render_calibration,
     render_error,
     render_now_playing,
     render_setup,
     render_setup_full,
+    render_title,
+    title_overflows,
 )
 
 log = logging.getLogger(__name__)
@@ -116,6 +120,9 @@ class LcdController:
         self._added_until = 0.0
         self._highlight: str | None = None
         self._seen_items: set[str] | None = None
+        self._title = ""  # 通常画面に出している曲名（長ければ帯だけを流す）
+        self._title_since = clock()
+        self._title_drawn: tuple[str, int] | None = None
         self._stop = threading.Event()
         service.on_change(self.invalidate)
 
@@ -155,8 +162,11 @@ class LcdController:
             notice = MSG_NO_SPEAKER
         nxt = st.upcoming[0] if st.upcoming else None
         rows = self._queue_rows(st.upcoming)
+        title = (st.now.title if st.now else "待機中") or "—"
+        if title != self._title:
+            self._title, self._title_since = title, self.clock()  # 曲が変わったら先頭から
         return "now", NowPlayingView(
-            title=st.now.title if st.now else "待機中",
+            title=title,
             artist=st.now.artist if st.now else "",
             position=st.position,
             duration=st.duration,
@@ -169,7 +179,11 @@ class LcdController:
             hint="" if st.now else self.portal_url + "#owner",
             queue_rows=rows,
             mode=self._mode,
+            title_offset=self._marquee(),
         )
+
+    def _marquee(self) -> int:
+        return marquee_offset(self._title, self.clock() - self._title_since)
 
     def _queue_rows(self, upcoming: list[TrackView]) -> tuple[QueueRow, ...] | None:
         """左側をリストにするなら行を、レコードにするなら None を返す。"""
@@ -302,6 +316,7 @@ class LcdController:
             data = _splice(data, frames.shown, RECORD_XY, DIAMETER, self.fb.width)
         self.fb.write_raw(data, (0, 0), img.size)
         self._last_screen = name
+        self._title_drawn = (self._title, self._marquee()) if name == "now" else None
         return name
 
     def tick(self) -> None:
@@ -318,6 +333,19 @@ class LcdController:
             return
         if self._last_screen == "now" and not self._last_list and self.svc.is_playing and self._frames:
             self.fb.write_raw(self._frames.next(), RECORD_XY, (DIAMETER, DIAMETER))
+        if self._last_screen == "now":
+            self._scroll_title()
+
+    def _scroll_title(self) -> None:
+        """長い曲名だけ、帯を部分書き込みして横に流す（位置が変わったときだけ書く）。"""
+        if not title_overflows(self._title):
+            return
+        drawn = (self._title, self._marquee())
+        if drawn == self._title_drawn:
+            return
+        strip = render_title(*drawn)
+        self.fb.write_raw(to_rgb565(strip), TITLE_BOX[:2], strip.size)
+        self._title_drawn = drawn
 
     def start(self) -> None:  # pragma: no cover - スレッドループ
         def loop() -> None:

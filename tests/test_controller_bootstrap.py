@@ -199,6 +199,36 @@ def test_full_redraw_keeps_record_angle(lcd):
     assert region() == spinning
 
 
+def test_long_title_scrolls_by_partial_write(lcd):
+    """長い曲名は帯だけを部分書き込みして流す。位置が変わらなければ書かない。曲が変わったら先頭から。"""
+    from soikaxa.lcd.screens import MARQUEE_PAUSE_SEC, TITLE_BOX
+
+    c, svc, fb, jobs, clock, tr = lcd
+    for e in (Event.NET_UP, Event.BT_CONNECTED):
+        svc.dispatch(e)
+    c._title = ""
+    writes = []
+    orig = fb.write_raw
+    fb.write_raw = lambda data, xy, size: (writes.append((xy, size)), orig(data, xy, size))[1]
+    long = "とても長い曲名のテスト — Extended Version (Live at Somewhere 2026)"
+    svc.status = lambda orig=svc.status: replace(orig(), now=TrackView(id="t1", title=long))
+    c.tick()  # 全面
+    writes.clear()
+    c.tick()  # 先頭で停止中: 帯は書かない
+    assert not [w for w in writes if w[0] == TITLE_BOX[:2]]
+    clock.t += MARQUEE_PAUSE_SEC + 0.5
+    c.tick()
+    strip = [w for w in writes if w[0] == TITLE_BOX[:2]]
+    assert strip == [(TITLE_BOX[:2], (TITLE_BOX[2] - TITLE_BOX[0], TITLE_BOX[3] - TITLE_BOX[1]))]
+    n = len(writes)
+    c.tick()  # 時間が進まず位置も同じ → 書かない
+    assert len(writes) == n
+    svc.status = lambda orig=svc.status: replace(orig(), now=TrackView(id="t2", title=long + "2"))
+    c.invalidate()
+    c.tick()
+    assert c._marquee() == 0  # 曲が変わったら先頭から
+
+
 def test_setup_full_is_drawn_once_not_every_tick(lcd):
     c, svc, fb, jobs, clock, _ = lcd
     svc.dispatch(Event.NET_UP)

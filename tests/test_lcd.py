@@ -176,3 +176,37 @@ def test_mode_button_and_icon_follow_mode():
     ]
     assert len(set(crops)) == 3  # ラベルとアイコンがモードごとに違う
     assert box[2] <= 480 and box[3] <= 320 and box[2] - box[0] >= 44 and box[3] - box[1] >= 44
+
+
+LONG_TITLE = "とても長い曲名のテスト — Extended Version (Live at Somewhere 2026)"
+
+
+def test_marquee_offset_pauses_then_scrolls_and_loops():
+    """長い曲名は先頭で止まってから左へ流れ、一周したらまた止まる。収まる曲名は動かない。"""
+    assert screens.marquee_offset("短い曲", 10.0) == 0
+    assert screens.title_overflows(LONG_TITLE)
+    pause, speed = screens.MARQUEE_PAUSE_SEC, screens.MARQUEE_SPEED
+    assert screens.marquee_offset(LONG_TITLE, 0.0) == 0
+    assert screens.marquee_offset(LONG_TITLE, pause - 0.1) == 0
+    assert screens.marquee_offset(LONG_TITLE, pause + 1.0) == int(speed)
+    span = theme.font(screens.TITLE_SIZE).getlength(LONG_TITLE) + screens.MARQUEE_GAP
+    cycle = pause + span / speed
+    assert screens.marquee_offset(LONG_TITLE, cycle + 0.5) == 0  # 2 周目の先頭で止まる
+
+
+def test_render_title_scrolls_long_title_without_ellipsis():
+    x0, y0, x1, y1 = screens.TITLE_BOX
+    short = screens.render_title("短い曲")
+    assert short.size == (x1 - x0, y1 - y0)
+    a, b = screens.render_title(LONG_TITLE, 0), screens.render_title(LONG_TITLE, 40)
+    assert a.tobytes() != b.tobytes()
+    span = int(theme.font(screens.TITLE_SIZE).getlength(LONG_TITLE)) + screens.MARQUEE_GAP
+    # 一周ずらすと最初と同じ絵になる（つなぎ目がない）
+    assert screens.render_title(LONG_TITLE, span).tobytes() == a.tobytes()
+
+
+def test_now_playing_draws_title_strip_at_offset():
+    v = screens.NowPlayingView(title=LONG_TITLE, guest_qr="X")
+    img = screens.render_now_playing(replace(v, title_offset=40))
+    strip = img.crop(screens.TITLE_BOX)
+    assert strip.tobytes() == screens.render_title(LONG_TITLE, 40).tobytes()
