@@ -62,7 +62,7 @@ def fake_runner() -> FakeRunner:
     )
     r.on(["bluetoothctl", "devices"], CommandResult(0, "Device AA:BB:CC:DD:EE:FF Fake Speaker"))
     r.on(["bluetoothctl", "info"], CommandResult(0, "Name: Fake Speaker\nPaired: yes\nConnected: yes"))
-    r.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(0, "Connection successful"))
+    r.on(["bluetoothctl", "connect"], CommandResult(0, "Connection successful"))
     return r
 
 

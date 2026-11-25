@@ -42,10 +42,19 @@ class BtDevice:
     connected: bool = False
 
 
+TIMEOUT_RC = 124  # SubprocessRunner が上限で打ち切ったとき
+_KEY_LINE = re.compile(r"fail|error|success|not available|timeout|attempting|request|agent", re.I)
+
+
 def _log_failure(op: str, mac: str, res: CommandResult) -> None:
-    """失敗の理由（`org.bluez.Error.*`）を journal に残す。画面の案内だけでは原因を追えないため。"""
-    out = " | ".join(s.strip() for s in (res.stdout, res.stderr) if s.strip())
-    log.warning("bt %s %s 失敗 (rc=%d): %s", op, mac, res.returncode, out[-500:] or "出力なし")
+    """失敗の理由（`org.bluez.Error.*`）を journal に残す。画面の案内だけでは原因を追えないため。
+
+    pair 中は `[CHG] ... UUIDs:` が大量に出て肝心の行が埋もれるので、結果に関わる行だけを拾う。
+    """
+    lines = [ln.strip() for ln in (res.stdout + "\n" + res.stderr).splitlines() if ln.strip()]
+    key = [ln for ln in lines if _KEY_LINE.search(ln)]
+    out = " | ".join(key or lines[-3:])
+    log.warning("bt %s %s 失敗 (rc=%d): %s", op, mac, res.returncode, out[-600:] or "出力なし")
 
 
 def _parse_devices(stdout: str) -> list[tuple[str, str]]:
@@ -76,6 +85,11 @@ class BluetoothManager:
 
     # ペアリング直後はスピーカーが自分から接続しに来ることがあり、すぐの connect がぶつかる
     PAIR_SETTLE_SEC = 2.0
+    # pair / connect は `--timeout` を付けない。付けると結果が出ても指定秒まで終わらず、途中で切れた
+    # ペアリングは取り消される（実機: 20 秒の時点でまだサービス情報を受け取っている途中だった）。
+    # 付けなければ結果が返った時点で終わるので、上限はこちらで長めに持つ
+    PAIR_TIMEOUT_SEC = 60.0
+    CONNECT_TIMEOUT_SEC = 30.0
     RETRY_WAIT_SEC = 2.0
 
     def __init__(self, runner: CommandRunner, sleep: Callable[[float], None] = time.sleep):
@@ -146,7 +160,7 @@ class BluetoothManager:
 
     def _pair(self, mac: str) -> PairOutcome:
         # `--timeout` 付きの bluetoothctl は失敗しても終了コード 0 で終わることがある。出力と状態で判断する
-        res = self.r.run(["bluetoothctl", "--timeout", "20", "pair", mac], timeout=25)
+        res = self.r.run(["bluetoothctl", "pair", mac], timeout=self.PAIR_TIMEOUT_SEC)
         out = res.stdout + res.stderr
         if "Pairing successful" in out or "AlreadyExists" in out:
             return "ok"
@@ -164,23 +178,27 @@ class BluetoothManager:
                 self._sleep(self.RETRY_WAIT_SEC)
                 if self.is_connected(mac):  # 待つ間にスピーカー側からつながった
                     return True
-            if self._connect_once(mac):
+            ok, timed_out = self._connect_once(mac)
+            if ok:
                 return True
+            if timed_out:
+                return False  # 応答のないまま上限まで待った。くり返しても待ち時間が延びるだけ
         return False
 
     def connect(self, mac: str) -> bool:
         """1 回だけ接続を試す（監視ループの自動再接続用）。手動の操作中はそちらが終わるまで待つ。"""
         mac = validate_mac(mac)
         with self._lock:
-            return self._connect_once(mac)
+            return self._connect_once(mac)[0]
 
-    def _connect_once(self, mac: str) -> bool:
-        res = self.r.run(["bluetoothctl", "--timeout", "15", "connect", mac], timeout=20)
-        # pair と同じく終了コードは当てにしない。出力か BlueZ の状態で判断する
+    def _connect_once(self, mac: str) -> tuple[bool, bool]:
+        """(成功, 応答なしで打ち切り)。"""
+        res = self.r.run(["bluetoothctl", "connect", mac], timeout=self.CONNECT_TIMEOUT_SEC)
+        # 終了コードは当てにしない。出力か BlueZ の状態で判断する
         if "Connection successful" in res.stdout or self.is_connected(mac):
-            return True
+            return True, False
         _log_failure("connect", mac, res)
-        return False
+        return False, res.returncode == TIMEOUT_RC
 
     def disconnect(self, mac: str) -> bool:
         return self.r.run(["bluetoothctl", "disconnect", validate_mac(mac)]).ok

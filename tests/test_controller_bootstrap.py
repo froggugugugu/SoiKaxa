@@ -340,10 +340,10 @@ def test_speaker_loss_is_detected_while_playing_and_reconnected(rt):
     rt.service.select_playlist("Mix", "local")
     assert rt.service.state.value == "PLAYING"
     rt.runner.on(["bluetoothctl", "info"], CommandResult(0, "Connected: no"))
-    rt.runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(1, "Failed"))
+    rt.runner.on(["bluetoothctl", "connect"], CommandResult(1, "Failed"))
     assert not bootstrap.connect_speaker(rt)
     assert rt.service.state.value == "ONLINE" and not rt.speaker_connected
-    rt.runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(0, "Connection successful"))
+    rt.runner.on(["bluetoothctl", "connect"], CommandResult(0, "Connection successful"))
     assert bootstrap.connect_speaker(rt)
     assert rt.service.state.value == "IDLE" and rt.speaker_connected
 
@@ -384,7 +384,7 @@ def test_long_press_unlocks_pin_guard(rt):
 def test_connect_speaker_failure(rt):
     rt.service.dispatch(Event.NET_UP)
     rt.runner.on(["bluetoothctl", "info"], CommandResult(0, "Connected: no"))
-    rt.runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(1, "Failed"))
+    rt.runner.on(["bluetoothctl", "connect"], CommandResult(1, "Failed"))
     rt.store.update(known_speakers=[Speaker("AA:BB:CC:DD:EE:FF", "Fake")])
     assert not bootstrap.connect_speaker(rt) and rt.service.state.value == "ONLINE"
 

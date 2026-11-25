@@ -12,7 +12,7 @@
 | 最終更新 | 2026-11-25（BT 接続の直列化・再試行、QR の待ち時間案内） |
 | ブランチ | `fix/bt-pair-failure-detection` |
 | 起動コマンド | `SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_FAKE=1 SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon` |
-| スモークテスト | `uv run pytest` → 期待: 323 passed |
+| スモークテスト | `uv run pytest` → 期待: 326 passed |
 | 既知の壊れている箇所 | なし（実機の未確認は下表の R 項目） |
 
 ---
@@ -64,7 +64,8 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 
 - **やったこと**: アプリの「接続」だけが connect_failed になり、SSH の手打ち（pair → trust → connect）ではつながる件。原因候補 2 つに対処: ① 監視ループの自動再接続とオーナーの接続が同時に connect を送る → `BluetoothManager` の接続系をロックで直列化し、手動中（`busy`）は `connect_speaker` が休む ② pair → trust → connect を間を置かず送る → ペアリング後 2 秒待ち、connect は再試行（記憶済みは 2 回、ペアリング後は 3 回）、待つ間に自分からつながったら成功。記憶済みの鍵を 1 回の失敗で消さない。connect の判定も終了コードではなく出力と `info`。失敗時は bluetoothctl の出力を journal（`soikaxa.bt`）に記録。接続待ちの最大時間の文言を更新。QR を読んでから専用ブラウザが開くまで 5〜6 秒かかる案内を LCD（再生中のゲスト QR・設定用 QR）と guide.html に追加
 - **検証**: `uv run pytest` → 323 passed / ruff 0 / format 0 / mypy 0 / check_deps 0 / LCD 2 画面を PNG に描画し、はみ出し・ボタンとの重なりなしを目視
-- **未完了 / 申し送り**: 実機では再現しなくなったため未確認（R）。次に失敗したら `journalctl -u soikaxa@<user> | grep "bt "` で `org.bluez.Error.*` を確認できる
+- **実機ログ（22:13）で判明**: connect は 15 秒たっても `Attempting to connect` のまま無応答、pair は 20 秒時点でまだ UUID を受信中に打ち切られていた（`--timeout` で bluetoothctl が終わるとペアリングは取り消される）→ pair / connect から `--timeout` を外し、上限は runner で pair 60 秒 / connect 30 秒。無応答で打ち切った connect は再試行しない。ログは結果の行だけを拾う（UUID の行で埋もれていた）。326 passed
+- **未完了 / 申し送り**: 実機で再確認が必要（R）。次に失敗したら `journalctl -u soikaxa@<user> | grep "bt "` で `org.bluez.Error.*` を確認できる
 - **判断・却下した案**: 失敗理由ごとに分岐する再試行は採らず、回数固定の再試行に（実機の正確なエラー文字列が未確認のため）
 
 ### 2026-11-25 — 実機の BT 組み直しの不具合対応（PR #4 / #5）

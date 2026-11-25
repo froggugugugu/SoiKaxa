@@ -17,8 +17,8 @@ MAC = "AA:BB:CC:DD:EE:FF"
 DEVICES = (
     f"Device {MAC} JBL Flip\nDevice 11:22:33:44:55:66 11-22-33-44-55-66\nnoise\nDevice 77:88:99:AA:BB:CC Sony"
 )
-CONNECT = ["bluetoothctl", "--timeout", "15", "connect"]
-PAIR = ["bluetoothctl", "--timeout", "20", "pair"]
+CONNECT = ["bluetoothctl", "connect"]
+PAIR = ["bluetoothctl", "pair"]
 
 
 def mgr(r, sleeps=None):
@@ -66,7 +66,7 @@ def test_pair_and_connect_flow():
     r = bt_runner().on(CONNECT, CommandResult(0, "Connection successful")).on(PAIR, PAIR_OK)
     assert mgr(r).pair_and_connect(MAC.lower()) == "ok"
     cmds = [c[1:] for c in r.calls]
-    assert ["--timeout", "20", "pair", MAC] in cmds and ["trust", MAC] in cmds
+    assert ["pair", MAC] in cmds and ["trust", MAC] in cmds
 
 
 def test_already_paired_skips_pair():
@@ -106,7 +106,7 @@ def test_stale_pairing_is_removed_and_repaired():
     r = _stateful_runner(PAIR_OK)
     assert mgr(r).pair_and_connect(MAC) == "ok"
     cmds = [c[1:] for c in r.calls]
-    order = [cmds.index(x) for x in (["remove", MAC], ["--timeout", "20", "pair", MAC], ["trust", MAC])]
+    order = [cmds.index(x) for x in (["remove", MAC], ["pair", MAC], ["trust", MAC])]
     assert order == sorted(order)
 
 
@@ -153,7 +153,7 @@ def test_connect_after_pair_waits_and_retries():
     assert mgr(r, sleeps).pair_and_connect(MAC) == "ok"
     assert len(tries) == 3
     cmds = [c[1:] for c in r.calls]
-    assert cmds.index(["trust", MAC]) < cmds.index(["--timeout", "15", "connect", MAC])
+    assert cmds.index(["trust", MAC]) < cmds.index(["connect", MAC])
     assert sleeps[0] == bt.BluetoothManager.PAIR_SETTLE_SEC and len(sleeps) == 3
 
 
@@ -197,6 +197,47 @@ def test_failure_output_is_logged(caplog):
     with caplog.at_level("WARNING", logger="soikaxa.bt"):
         assert mgr(r).pair_and_connect(MAC) == "connect_failed"
     assert "org.bluez.Error.Failed" in caplog.text
+
+
+def test_pair_log_keeps_result_line_among_uuid_noise(caplog):
+    """pair 中は UUID の行が大量に出る。結果の行が末尾切り捨てで消えないこと（実機ログで埋もれた）。"""
+    uuid = "-0000-1000-8000-00805f9b34fb"
+    noise = "\n".join(f"[CHG] Device {MAC} UUIDs: 0000110{i:x}{uuid}" for i in range(40))
+    fail = "Failed to pair: org.bluez.Error.AuthenticationCanceled"
+    out = f"Attempting to pair with {MAC}\n{noise}\n{fail}\n{noise}"
+    r = bt_runner().on(PAIR, CommandResult(1, out))
+    with caplog.at_level("WARNING", logger="soikaxa.bt"):
+        assert mgr(r).pair_and_connect(MAC) == "pair_failed"
+    assert "AuthenticationCanceled" in caplog.text and "UUIDs" not in caplog.text
+
+
+def test_pair_and_connect_run_without_cli_timeout():
+    """`--timeout` を付けると結果が出ても終わらず、途中で切れたペアリングは取り消される。
+
+    上限はこちらで持つ。
+    """
+    seen = []
+
+    class Rec(FakeRunner):
+        def run(self, args, *, timeout=10.0, input=None):
+            seen.append((list(args), timeout))
+            return super().run(args, timeout=timeout, input=input)
+
+    r = Rec()
+    r.on(["bluetoothctl", "info"], CommandResult(0, "Paired: no\nConnected: no"))
+    r.on(PAIR, PAIR_OK).on(CONNECT, CommandResult(0, "Connection successful"))
+    assert mgr(r).pair_and_connect(MAC) == "ok"
+    pair = next(t for a, t in seen if a[:2] == PAIR)
+    conn = next(t for a, t in seen if a[:2] == CONNECT)
+    assert pair >= 60 and conn >= 30
+    assert not [a for a, _ in seen if "--timeout" in a]
+
+
+def test_connect_hang_is_not_retried():
+    """応答のないまま上限で打ち切られたら、くり返さない（待ち時間が延びるだけ）。"""
+    r = bt_runner().on(PAIR, PAIR_OK).on(CONNECT, CommandResult(124, "", "timeout: bluetoothctl"))
+    assert mgr(r).pair_and_connect(MAC) == "connect_failed"
+    assert len(r.called(*CONNECT)) == 1
 
 
 def test_manual_connect_blocks_auto_connect():

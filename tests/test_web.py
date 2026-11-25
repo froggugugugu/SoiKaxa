@@ -86,7 +86,7 @@ def env(tmp_path):
         )
         .on(["bluetoothctl", "devices"], CommandResult(0, f"Device {MAC} JBL"))
         .on(["bluetoothctl", "info"], CommandResult(0, "Name: JBL\nPaired: yes\nConnected: yes"))
-        .on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(0, "Connection successful"))
+        .on(["bluetoothctl", "connect"], CommandResult(0, "Connection successful"))
     )
     updates = []
     ctx = AppContext(
@@ -553,7 +553,7 @@ def test_owner_bluetooth_forget_unknown_to_bluez_still_drops_known(env):
 
 def test_owner_bluetooth_failure(env):
     client, ctx, src, tr, runner, _ = env
-    runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(1, "Failed"))
+    runner.on(["bluetoothctl", "connect"], CommandResult(1, "Failed"))
     runner.on(["bluetoothctl", "info"], CommandResult(0, "Paired: yes\nConnected: no"))
     h = login(client)
     r = client.post("/api/owner/bt/connect", json={"mac": MAC}, headers=h).json()
