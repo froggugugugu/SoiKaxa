@@ -10,9 +10,9 @@
 | 項目 | 内容 |
 | ---- | ---- |
 | 最終更新 | 2026-11-25（BT 接続の根本原因、LCD の文字の流れ） |
-| ブランチ | `feat/saved-public-playlists`（PR #6 `feat/lcd-marquee-and-setup` の上） |
+| ブランチ | `feat/speaker-buttons`（PR #7 `feat/saved-public-playlists` の上） |
 | 起動コマンド | `SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_FAKE=1 SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon` |
-| スモークテスト | `uv run pytest` → 期待: 337 passed |
+| スモークテスト | `uv run pytest` → 期待: 341 passed |
 | 既知の壊れている箇所 | なし（実機の未確認は下表の R 項目） |
 
 ---
@@ -59,6 +59,13 @@ U = 開発 PC で検証済み（pytest + フェイク起動の HTTP スモーク
 ---
 
 ## 4. セッションログ（新しいものを上に）
+
+### 2026-11-27 — スピーカーのボタンで操作
+
+- **やったこと**: スピーカーの再生/停止・次の曲・前の曲（今の曲を頭から）のボタンで本体を操作（`mediakeys.py`、`PlayerService.restart`、`MpvPlayer.seek_start`）。「(AVRCP)」の入力デバイスを 3 秒ごとに探し直す。`01_setup.sh` で `input` グループを追加
+- **実機で分かったこと**: FUNLOGY Portable Mini2 は接続中に「FUNLOGY Portable Mini2 (AVRCP)」の入力デバイスが出る
+- **検証**: `uv run pytest` → 341 passed / ruff 0 / mypy 0 / check_deps 0（読み取りスレッドは実機のみ。キーの対応と頭出しは単体テスト）
+- **未完了 / 申し送り**: 実機で未確認（ボタンが反応するか、接続し直したあとも効くか）。ブランチ `feat/speaker-buttons`（PR #7 の上）
 
 ### 2026-11-25 — 公開プレイリストの保存・再生
 

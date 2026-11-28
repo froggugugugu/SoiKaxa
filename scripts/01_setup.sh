@@ -96,7 +96,8 @@ else
 fi
 # 自動再接続を早める
 grep -q '^ReconnectAttempts' /etc/bluetooth/main.conf || printf 'ReconnectAttempts=7\nReconnectIntervals=1,2,4,8,16,32,64\n' >> /etc/bluetooth/main.conf
-usermod -aG bluetooth,audio,gpio,spi,i2c "$USER_NAME" || true
+# input: タッチパネルとスピーカーのボタン（「<名前> (AVRCP)」の入力デバイス）を読む
+usermod -aG bluetooth,audio,gpio,spi,i2c,input "$USER_NAME" || true
 
 echo "== [5/6] 起動高速化: config.txt / cmdline.txt =="
 cp -n "$BOOT_CFG" "$BOOT_CFG.bak" || true
