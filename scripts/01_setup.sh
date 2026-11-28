@@ -46,6 +46,20 @@ systemctl enable NetworkManager bluetooth avahi-daemon
 echo "== [4/6] Bluetooth: A2DP Source 設定 =="
 # PipeWire をユーザーサービスとして自動起動（ログイン不要にするため linger）
 loginctl enable-linger "$USER_NAME"
+# WirePlumber は既定で「ログイン中（logind の active）のユーザー」にしか Bluetooth の音の受け口を
+# 登録しない。linger だけだと、SSH でログインしている間はつながり、ログアウトすると
+# connect が br-connection-profile-unavailable で失敗する（2026-11-25 実機で確認）。
+# 0.4 系（Bookworm）は lua.d、0.5 系は conf.d で切る（使われない方は無視される）
+WP_DIR="$HOME_DIR/.config/wireplumber"
+install -d -o "$USER_NAME" -g "$USER_NAME" "$HOME_DIR/.config" "$WP_DIR" \
+  "$WP_DIR/bluetooth.lua.d" "$WP_DIR/wireplumber.conf.d"
+printf '%s\n' '-- SoiKaxa: 誰もログインしていなくてもスピーカーへ音を送る' \
+  'bluez_monitor.properties["with-logind"] = false' > "$WP_DIR/bluetooth.lua.d/80-soikaxa-no-logind.lua"
+printf '%s\n' '# SoiKaxa: 誰もログインしていなくてもスピーカーへ音を送る' \
+  'wireplumber.profiles = {' '  main = {' '    monitor.bluez.seat-monitoring = disabled' '  }' '}' \
+  > "$WP_DIR/wireplumber.conf.d/80-soikaxa-no-seat.conf"
+chown "$USER_NAME:$USER_NAME" "$WP_DIR/bluetooth.lua.d/80-soikaxa-no-logind.lua" \
+  "$WP_DIR/wireplumber.conf.d/80-soikaxa-no-seat.conf"
 # BlueZ: 起動時に自動で電源ON、A2DP source を有効
 mkdir -p /etc/bluetooth
 if ! grep -q '^AutoEnable=true' /etc/bluetooth/main.conf 2>/dev/null; then

@@ -86,14 +86,14 @@ def env(tmp_path):
         )
         .on(["bluetoothctl", "devices"], CommandResult(0, f"Device {MAC} JBL"))
         .on(["bluetoothctl", "info"], CommandResult(0, "Name: JBL\nPaired: yes\nConnected: yes"))
-        .on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(0, "Connection successful"))
+        .on(["bluetoothctl", "connect"], CommandResult(0, "Connection successful"))
     )
     updates = []
     ctx = AppContext(
         service=svc,
         store=store,
         wifi=WifiManager(runner, http_get=lambda u: (204, "")),
-        bt=BluetoothManager(runner),
+        bt=BluetoothManager(runner, sleep=lambda s: None),
         pin_guard=PinGuard(max_attempts=3, lockout_sec=60),
         run_update=lambda: updates.append(1) or True,
     )
@@ -553,10 +553,28 @@ def test_owner_bluetooth_forget_unknown_to_bluez_still_drops_known(env):
 
 def test_owner_bluetooth_failure(env):
     client, ctx, src, tr, runner, _ = env
-    runner.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(1, "Failed"))
+    runner.on(["bluetoothctl", "connect"], CommandResult(1, "Failed"))
     runner.on(["bluetoothctl", "info"], CommandResult(0, "Paired: yes\nConnected: no"))
     h = login(client)
-    assert client.post("/api/owner/bt/connect", json={"mac": MAC}, headers=h).json()["ok"] is False
+    r = client.post("/api/owner/bt/connect", json={"mac": MAC}, headers=h).json()
+    assert r["ok"] is False and r["reason"] == "connect_failed"
+    assert ctx.store.load().known_speakers == ()  # つながっていない機器は記憶しない
+
+
+@pytest.mark.parametrize(
+    ("outcome", "hint"),
+    [
+        ("not_found", "もう一度「スキャン」"),
+        ("pair_failed", "ペアリングモード"),
+        ("connect_failed", "電源を入れ直"),
+    ],
+)
+def test_owner_bluetooth_failure_explains_next_step(env, monkeypatch, outcome, hint):
+    client, ctx, *_ = env
+    monkeypatch.setattr(ctx.bt, "pair_and_connect", lambda mac: outcome)
+    h = login(client)
+    r = client.post("/api/owner/bt/connect", json={"mac": MAC}, headers=h).json()
+    assert r["ok"] is False and r["reason"] == outcome and hint in r["message"]
 
 
 def test_owner_source_auth(env):

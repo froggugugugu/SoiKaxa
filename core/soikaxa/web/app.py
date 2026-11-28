@@ -128,6 +128,18 @@ class AppContext:
     setup_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
+# スピーカーのランプ（点滅・点灯）だけでは状態が分かりにくいので、どの段階で失敗したかと次の一手を画面で伝える
+BT_FAILURE_MESSAGES = {
+    "not_found": "スピーカーが見つかりません。スキャンから時間がたつと一覧から消えます。"
+    "もう一度「スキャン」して、すぐに「接続」を押してください",
+    "pair_failed": "ペアリングできませんでした。スピーカーは電源を入れただけだと、前に使ったスマホなどに"
+    "つなぎに行くことがあります。近くのスマホの Bluetooth をオフにし、説明書の方法でスピーカーを"
+    "ペアリングモードにしてから、もう一度「スキャン」→「接続」を試してください",
+    "connect_failed": "ペアリングはできましたが、音の接続に失敗しました。スピーカーの電源を入れ直して、"
+    "もう一度「接続」を押してください",
+}
+
+
 # ---------- 変換 ----------
 
 
@@ -569,11 +581,11 @@ def create_app(ctx: AppContext) -> FastAPI:
     @app.post("/api/owner/bt/connect", dependencies=owner)
     def bt_connect(body: s.BtConnectIn) -> dict[str, Any]:
         try:
-            ok = ctx.bt.pair_and_connect(body.mac)
+            outcome = ctx.bt.pair_and_connect(body.mac)
         except InvalidMac as e:
             raise _err(422, "invalid", str(e)) from e
-        if not ok:
-            return {"ok": False, "message": "スピーカーに接続できません。ペアリングモードを確認してください"}
+        if outcome != "ok":
+            return {"ok": False, "reason": outcome, "message": BT_FAILURE_MESSAGES[outcome]}
         mac = body.mac.upper()
         name = ctx.bt.name_of(mac)
         speakers = [Speaker(mac, name)] + [k for k in store.load().known_speakers if k.mac != mac]

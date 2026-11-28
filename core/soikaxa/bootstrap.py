@@ -62,7 +62,7 @@ def fake_runner() -> FakeRunner:
     )
     r.on(["bluetoothctl", "devices"], CommandResult(0, "Device AA:BB:CC:DD:EE:FF Fake Speaker"))
     r.on(["bluetoothctl", "info"], CommandResult(0, "Name: Fake Speaker\nPaired: yes\nConnected: yes"))
-    r.on(["bluetoothctl", "--timeout", "15", "connect"], CommandResult(0, "Connection successful"))
+    r.on(["bluetoothctl", "connect"], CommandResult(0, "Connection successful"))
     return r
 
 
@@ -128,6 +128,9 @@ def connect_speaker(rt: Runtime) -> bool:
 
     自動再生は「未接続 → 接続」に変わったときだけ（再生が終わるたびに始め直さない）。
     """
+    if rt.bt.busy:
+        # オーナーが「接続」を押している最中。同時に connect を送ると互いに失敗させるので、この周回は休む
+        return rt.speaker_connected
     known = rt.store.load().known_speakers
     svc = rt.service
     if not known:

@@ -16,6 +16,7 @@ RECORD_XY = (20, (HEIGHT - DIAMETER) // 2)
 LIST_BOX = (0, 0, 230, HEIGHT)  # リスト表示で使う左側の領域（レコードの場所を含む）
 MODE_BUTTON = (388, 230, 476, 308)  # QR の右。左側の表示モードを切り替えるボタン（枠 = タップ領域）
 MODE_LABELS = {"disc": "レコード", "list": "リスト", "auto": "自動"}
+TOP_Y = 14  # 画面上端の書き出し。リストの見出し「次に流れる曲」と再生中の右列で共通
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,8 @@ def render_setup(qr_payload: str, url: str, code: str | None = None) -> Image.Im
     d.text((x, 60), "スマホでこの", font=font(24), fill=FG)
     d.text((x, 92), "QR を読んで", font=font(24), fill=FG)
     d.text((x, 124), "ください", font=font(24), fill=FG)
+    # 読んでから画面が開くまで 5〜6 秒かかる（カメラ画面のままなので読み直さないよう伝える）
+    d.text((x, 158), fit_text("開くまで 5 秒ほど待つ", font(16), w), font=font(16), fill=CYAN)
     d.text((x, 190), "開かないときは", font=font(16), fill=MUTED)
     d.text((x, 214), fit_text(url, font(18), w), font=font(18), fill=CYAN)
     _draw_code(d, (x, 248), code)
@@ -111,32 +114,39 @@ def render_now_playing(view: NowPlayingView, disc: Image.Image | None = None) ->
     else:
         _draw_queue(d, view.queue_rows)
     x, w = 240, WIDTH - 250
-    d.text((x, 20), fit_text(view.title or "—", font(24), w), font=font(24), fill=FG)
+    # 曲名は字が大きい。字面の上端をリストの見出し（16px）にそろえる
+    title_y = TOP_Y + font(16).getbbox("次")[1] - font(24).getbbox("次")[1]
+    d.text((x, title_y), fit_text(view.title or "—", font(24), w), font=font(24), fill=FG)
     if view.hint:
-        d.text((x, 54), fit_text(view.hint, font(18), w), font=font(18), fill=CYAN)
+        d.text((x, 48), fit_text(view.hint, font(18), w), font=font(18), fill=CYAN)
     else:
-        d.text((x, 54), fit_text(view.artist, font(18), w), font=font(18), fill=MUTED)
+        d.text((x, 48), fit_text(view.artist, font(18), w), font=font(18), fill=MUTED)
     # 進捗
-    y = 88
+    y = 82
     d.rectangle([x, y, x + w, y + 4], fill=(0x1C, 0x24, 0x2C))
     if view.position is not None and view.duration:
         ratio = max(0.0, min(1.0, view.position / view.duration))
         d.rectangle([x, y, x + int(w * ratio), y + 4], fill=CYAN)
     status = "II" if view.paused else ""
-    d.text((x, 98), f"{_fmt(view.position)} / {_fmt(view.duration)} {status}", font=font(14), fill=MUTED)
+    d.text((x, 92), f"{_fmt(view.position)} / {_fmt(view.duration)} {status}", font=font(14), fill=MUTED)
     # 次の曲
-    d.text((x, 124), "次:", font=font(16), fill=MAGENTA)
+    d.text((x, 118), "次:", font=font(16), fill=MAGENTA)
     nxt = view.next_title or "—"
     if view.next_added_by:
         nxt = f"{nxt}（{view.next_added_by}）"
-    d.text((x + 30, 124), fit_text(nxt, font(16), w - 30), font=font(16), fill=FG)
+    d.text((x + 30, 118), fit_text(nxt, font(16), w - 30), font=font(16), fill=FG)
     if view.notice:
-        d.text((x, 150), fit_text(view.notice, font(14), w), font=font(14), fill=MAGENTA)
+        d.text((x, 144), fit_text(view.notice, font(14), w), font=font(14), fill=MAGENTA)
     # ゲスト QR（静止）
     if view.guest_qr:
-        img.paste(make_qr(view.guest_qr, 140), (x, 172))
-        d.text((x + 150, 178), "曲を追加", font=font(16), fill=CYAN)
-        d.text((x + 150, 202), "QR を読む", font=font(14), fill=MUTED)
+        qr_y = 166
+        img.paste(make_qr(view.guest_qr, 140), (x, qr_y))
+        # 案内の字面の上端を QR の上辺にそろえる（フォントごとの上の余白を差し引く）
+        ty = qr_y - font(16).getbbox("曲")[1]
+        d.text((x + 150, ty), "曲を追加", font=font(16), fill=CYAN)
+        d.text((x + 150, ty + 18), "QR を読んで", font=font(14), fill=MUTED)
+        # 読んでから専用ブラウザが開くまで 5〜6 秒かかり、その間カメラ画面のままなので何度も読み直されがち
+        d.text((x + 150, ty + 34), "5 秒待つ", font=font(14), fill=MUTED)
     _draw_mode_button(d, view.mode)
     return img
 
@@ -174,7 +184,7 @@ def _draw_queue(d: ImageDraw.ImageDraw, rows: tuple[QueueRow, ...]) -> None:
     """左側に次の曲を最大 5 曲。追加された曲はマゼンタの帯と文字で強調する。"""
     x0, _, x1, _ = LIST_BOX
     x, w, row_h = x0 + 14, x1 - x0 - 24, 54
-    d.text((x, 14), "次に流れる曲", font=font(16), fill=CYAN)
+    d.text((x, TOP_Y), "次に流れる曲", font=font(16), fill=CYAN)
     if not rows:
         d.text((x, 48), "次の曲はありません", font=font(16), fill=MUTED)
     for i, row in enumerate(rows[:5]):
