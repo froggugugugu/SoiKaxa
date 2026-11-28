@@ -23,6 +23,7 @@ from .config import Settings, SettingsStore, data_dir, ensure_private_dir
 from .daemon import PlayerService
 from .fakes import FakeRunner, FakeTransport
 from .health import load_result
+from .mediakeys import SpeakerButtons
 from .net import AP_IP, WifiManager, generate_ap_credentials, wifi_qr_payload
 from .player import MpvPlayer, MpvTransport
 from .portal import PORTAL_URL
@@ -293,6 +294,8 @@ def main() -> None:  # pragma: no cover - 実行時配線（各部品は個別�
 
         touch = EvdevTouchSource(touch_dev, handle, cal=load_touch_cal(rt.store))
         touch.start()
+    if not rt.fake:
+        SpeakerButtons(rt.service).start()  # スピーカーの再生/停止・曲送りボタン（つながるたびに探し直す）
 
     def start_touch_calibration() -> bool:
         if touch is None or lcd is None:

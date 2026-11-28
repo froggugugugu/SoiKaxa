@@ -207,6 +207,21 @@ def test_toggle_pause_resume_and_idle_toggle(tmp_path):
     svc.resume()
 
 
+def test_restart_seeks_to_start_of_current_track(tmp_path):
+    """スピーカーの「前の曲」ボタン: 今の曲を頭から（本体に前の曲の機能はない）。
+
+    何も流れていなければ何もしない。
+    """
+    svc, tr = make(tmp_path, FakeAdapter("remote", {"p": ["a"]}))
+    svc.restart()
+    assert not [c for c in tr.sent if c[0] == "seek"]
+    svc.queue.set_playlist("p", [Track(id="a", title="A", source="remote")])
+    svc.toggle()
+    svc.restart()
+    assert ["seek", 0, "absolute"] in tr.sent
+    assert loaded(tr) == ["remote://a"]  # 曲は変えない
+
+
 def test_volume_remove_move_listeners_and_search(tmp_path):
     svc, tr = make(tmp_path, FakeAdapter("remote", {"p": ["a"]}))
     calls = []

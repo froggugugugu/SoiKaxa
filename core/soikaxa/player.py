@@ -209,6 +209,9 @@ class MpvPlayer:
     def toggle(self) -> None:
         self._cmd("cycle", "pause")
 
+    def seek_start(self) -> None:
+        self._cmd("seek", 0, "absolute")
+
     def stop(self) -> None:
         with self._lock:
             self._current_entry = None
