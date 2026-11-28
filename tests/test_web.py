@@ -404,7 +404,11 @@ def test_owner_playback_volume_queue(env):
     client, ctx, src, tr, *_ = env
     h = login(client)
     pls = client.get("/api/owner/playlists").json()
-    assert pls == {"adapter": "remote", "playlists": [{"id": "mine", "title": "Mine", "track_count": 2}]}
+    assert pls == {
+        "adapter": "remote",
+        "playlists": [{"id": "mine", "title": "Mine", "track_count": 2}],
+        "saved": [],
+    }
     assert client.post("/api/owner/play", json={"playlist_id": "mine"}, headers=h).status_code == 200
     assert client.get("/api/status").json()["now"]["id"] == "mine-1"
     for act in ("pause", "resume", "toggle", "next"):
@@ -420,6 +424,75 @@ def test_owner_playback_volume_queue(env):
     assert client.delete("/api/owner/queue/zzz", headers=h).status_code == 404
     assert client.post("/api/owner/queue/zzz/move", json={"index": 0}, headers=h).status_code == 404
     assert client.post("/api/owner/play", json={"playlist_id": "nope"}, headers=h).status_code == 502
+
+
+def test_owner_saved_public_playlists(env):
+    """公開プレイリストを検索して保存し、再生・削除できる。保存できるのは検索結果に出たものだけ。"""
+    client, ctx, src, tr, *_ = env
+    h = login(client)
+    found = client.get("/api/owner/public-playlists", params={"q": "jazz"}).json()["results"]
+    assert found == [{"id": "pub", "title": "Public", "adapter": "remote"}]  # 曲は出さない
+    assert client.post("/api/owner/saved-playlists", json={"playlist_id": "pub"}).status_code == 403  # CSRF
+    r = client.post("/api/owner/saved-playlists", json={"playlist_id": "pub"}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["saved"] == [{"adapter": "remote", "id": "pub", "title": "Public"}]
+    client.post("/api/owner/saved-playlists", json={"playlist_id": "pub"}, headers=h)  # 二重に入れない
+    assert client.get("/api/owner/playlists").json()["saved"] == [
+        {"adapter": "remote", "id": "pub", "title": "Public"}
+    ]
+    # 検索結果に無い ID は保存できない
+    assert client.post("/api/owner/saved-playlists", json={"playlist_id": "x"}, headers=h).status_code == 404
+    # 保存したときの音源で再生する（あとで音源を切り替えても同じものが流れる）
+    store = ctx.store
+    store.update(active_adapter="local")
+    r = client.post("/api/owner/play", json={"playlist_id": "pub", "adapter": "remote"}, headers=h)
+    assert r.status_code == 200
+    assert client.get("/api/status").json()["now"]["id"] == "pub-1"
+    assert store.load().last_playlist.adapter == "remote"  # 自動再生でも同じ音源で流す
+    assert client.post(
+        "/api/owner/play", json={"playlist_id": "pub", "adapter": "zzz"}, headers=h
+    ).status_code in (
+        422,
+        502,
+    )
+    r = client.post("/api/owner/saved-playlists/remove", json={"playlist_id": "pub"}, headers=h)
+    assert r.status_code == 200 and r.json()["saved"] == []
+
+
+def test_saved_playlist_keeps_search_time_adapter_and_pairs_with_id(env):
+    """検索した時点の音源で保存する。同じ ID でも音源が違えば別物として扱う。"""
+    client, ctx, src, tr, *_ = env
+    h = login(client)
+    from soikaxa.adapters.base import Playlist as Pl
+    from soikaxa.config import SavedPlaylist
+
+    orig = src.search
+    src.search = lambda q, limit=20: [Pl(id="pub", title="Public", source="")]  # 音源名を付けないアダプタ
+    client.get("/api/owner/public-playlists", params={"q": "jazz"})
+    src.search = orig
+    ctx.store.update(active_adapter="local")  # 検索のあとで音源を切り替えてから保存
+    ctx.store.update(saved_playlists=[SavedPlaylist("local", "pub", "Local one")])
+    r = client.post("/api/owner/saved-playlists", json={"playlist_id": "pub"}, headers=h)
+    assert [(p["adapter"], p["id"]) for p in r.json()["saved"]] == [("local", "pub"), ("remote", "pub")]
+    r = client.post(
+        "/api/owner/saved-playlists/remove", json={"playlist_id": "pub", "adapter": "remote"}, headers=h
+    )
+    assert [(p["adapter"], p["id"]) for p in r.json()["saved"]] == [("local", "pub")]
+
+
+def test_saved_public_playlists_limit_and_reset(env):
+    client, ctx, src, tr, *_ = env
+    h = login(client)
+    from soikaxa.config import SavedPlaylist
+
+    full = tuple(SavedPlaylist("remote", f"p{i}", f"P{i}") for i in range(20))
+    ctx.store.update(saved_playlists=full)
+    client.get("/api/owner/public-playlists", params={"q": "jazz"})
+    r = client.post("/api/owner/saved-playlists", json={"playlist_id": "pub"}, headers=h)
+    assert r.status_code == 409 and "20" in r.json()["detail"]["message"]
+    r = client.post("/api/owner/reset", json={"confirm": "RESET"}, headers=h)
+    assert r.status_code == 200
+    assert ctx.store.load().saved_playlists == ()  # 初期化で消える
 
 
 def test_owner_settings(env):

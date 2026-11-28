@@ -38,12 +38,20 @@ for mac in $(bluetoothctl devices Paired 2>/dev/null | awk '{print $2}' | head -
 done
 echo "\$ wpctl status | (Sinks)"
 wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' | head -8
+# ログインしていないときに br-connection-profile-unavailable になる原因の切り分け（01_setup.sh が設定）
+run wireplumber --version
+run loginctl show-user "$USER" -p State -p Linger
+run ls "$HOME/.config/wireplumber/bluetooth.lua.d" "$HOME/.config/wireplumber/wireplumber.conf.d"
+echo "\$ journalctl -u soikaxa@$USER | grep 'soikaxa.bt' | tail -10（接続の失敗理由）"
+journalctl -u "soikaxa@$USER.service" --no-pager 2>/dev/null | grep 'soikaxa.bt' | tail -10
 
 sec "LCD / タッチ"
 run ls -l /dev/fb0 /dev/fb1
 for f in /sys/class/graphics/fb*; do echo "$f: $(cat "$f/name" 2>/dev/null) $(cat "$f/virtual_size" 2>/dev/null)"; done
 echo "\$ grep (kms|spi|osoyoo) /boot/firmware/config.txt"
 grep -E "kms|spi|osoyoo" /boot/firmware/config.txt
+echo "\$ grep -o vt.global_cursor_default=0 /boot/firmware/cmdline.txt（無いと LCD でカーソルが点滅）"
+grep -o 'vt.global_cursor_default=0' /boot/firmware/cmdline.txt || echo "（なし）"
 echo "\$ 入力デバイス"
 grep -E "^N: Name=|^H: Handlers=" /proc/bus/input/devices | paste - - | head -8
 

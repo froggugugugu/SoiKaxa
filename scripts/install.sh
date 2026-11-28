@@ -3,7 +3,8 @@
 # 実行: sudo bash ~/soikaxa/scripts/install.sh      （Mac からは scripts/deploy.sh が呼ぶ）
 # 内容: OS 更新 → 基本セットアップ（01_setup.sh）→ LCD ドライバ → 本体（03_install.sh）
 #       → AP 用 uap0 → 上流 Wi-Fi を 2.4GHz に固定 → 曲フォルダ。最後に再起動が必要。
-# --upgrade: ソフトウェア更新（upgrade.sh）から呼ぶ。OS 更新と Wi-Fi の固定を省き、再起動を求めない
+# --upgrade: ソフトウェア更新（upgrade.sh）と deploy.sh --update から呼ぶ。OS 更新と Wi-Fi の固定を省き、
+#            再起動を求めない（起動オプションを変えたときは /run/soikaxa-reboot-required を残す）
 set -euo pipefail
 UPGRADE=0
 [[ "${1:-}" == --upgrade ]] && UPGRADE=1

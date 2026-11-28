@@ -56,6 +56,23 @@ def test_store_roundtrip_and_permissions(tmp_path):
     assert again == s
 
 
+def test_store_saved_playlists_roundtrip_and_skips_broken(tmp_path):
+    from soikaxa.config import MAX_SAVED_PLAYLISTS, SavedPlaylist
+
+    p = tmp_path / "settings.json"
+    store = SettingsStore(p)
+    s = store.update(saved_playlists=[SavedPlaylist("ytmusic", "PL1", "Jazz")])
+    assert (
+        SettingsStore(p).load().saved_playlists
+        == s.saved_playlists
+        == (SavedPlaylist("ytmusic", "PL1", "Jazz"),)
+    )
+    many = [{"adapter": "a", "id": str(i)} for i in range(MAX_SAVED_PLAYLISTS + 5)]
+    p.write_text(json.dumps({"saved_playlists": [{"id": "no-adapter"}, "x", *many]}))
+    got = SettingsStore(p).load().saved_playlists
+    assert len(got) == MAX_SAVED_PLAYLISTS and got[0] == SavedPlaylist("a", "0", "")
+
+
 def test_store_backward_compat_unknown_missing_and_clamp(tmp_path):
     p = tmp_path / "settings.json"
     p.write_text(json.dumps({"volume": 999, "unknown_key": 1, "guest_queue_limit": 0}))

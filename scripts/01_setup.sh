@@ -51,15 +51,31 @@ loginctl enable-linger "$USER_NAME"
 # connect が br-connection-profile-unavailable で失敗する（2026-11-25 実機で確認）。
 # 0.4 系（Bookworm）は lua.d、0.5 系は conf.d で切る（使われない方は無視される）
 WP_DIR="$HOME_DIR/.config/wireplumber"
-install -d -o "$USER_NAME" -g "$USER_NAME" "$HOME_DIR/.config" "$WP_DIR" \
-  "$WP_DIR/bluetooth.lua.d" "$WP_DIR/wireplumber.conf.d"
-printf '%s\n' '-- SoiKaxa: 誰もログインしていなくてもスピーカーへ音を送る' \
-  'bluez_monitor.properties["with-logind"] = false' > "$WP_DIR/bluetooth.lua.d/80-soikaxa-no-logind.lua"
-printf '%s\n' '# SoiKaxa: 誰もログインしていなくてもスピーカーへ音を送る' \
-  'wireplumber.profiles = {' '  main = {' '    monitor.bluez.seat-monitoring = disabled' '  }' '}' \
-  > "$WP_DIR/wireplumber.conf.d/80-soikaxa-no-seat.conf"
-chown "$USER_NAME:$USER_NAME" "$WP_DIR/bluetooth.lua.d/80-soikaxa-no-logind.lua" \
-  "$WP_DIR/wireplumber.conf.d/80-soikaxa-no-seat.conf"
+WP_CHANGED=0
+# 内容が変わったときだけ書き換える（変わったら WirePlumber を再起動して反映する）
+put_user_file() {
+  local path="$1" tmp
+  tmp="$(mktemp)"
+  cat > "$tmp"
+  if ! cmp -s "$tmp" "$path"; then
+    install -D -o "$USER_NAME" -g "$USER_NAME" -m 644 "$tmp" "$path"
+    WP_CHANGED=1
+  fi
+  rm -f "$tmp"
+}
+install -d -o "$USER_NAME" -g "$USER_NAME" "$HOME_DIR/.config" "$WP_DIR"
+# パイプで渡すと関数がサブシェルで動き WP_CHANGED が伝わらないので、プロセス置換で渡す
+put_user_file "$WP_DIR/bluetooth.lua.d/80-soikaxa-no-logind.lua" < <(printf '%s\n' \
+  '-- SoiKaxa: 誰もログインしていなくてもスピーカーへ音を送る' \
+  'bluez_monitor.properties["with-logind"] = false')
+put_user_file "$WP_DIR/wireplumber.conf.d/80-soikaxa-no-seat.conf" < <(printf '%s\n' \
+  '# SoiKaxa: 誰もログインしていなくてもスピーカーへ音を送る' \
+  'wireplumber.profiles = {' '  main = {' '    monitor.bluez.seat-monitoring = disabled' '  }' '}')
+chown "$USER_NAME:$USER_NAME" "$WP_DIR/bluetooth.lua.d" "$WP_DIR/wireplumber.conf.d"
+# 既に動いている実機（アップグレード・deploy --update）では再起動なしで効かせる。初回は再起動で効く
+if [[ $WP_CHANGED == 1 ]] && systemctl --user -M "$USER_NAME@" is-active --quiet wireplumber 2>/dev/null; then
+  systemctl --user -M "$USER_NAME@" restart wireplumber && echo "  WirePlumber を再起動しました（ログイン不要の設定を反映）"
+fi
 # BlueZ: 起動時に自動で電源ON、A2DP source を有効
 mkdir -p /etc/bluetooth
 if ! grep -q '^AutoEnable=true' /etc/bluetooth/main.conf 2>/dev/null; then
@@ -98,6 +114,13 @@ if ! grep -q 'quiet' "$BOOT_CMD"; then
 fi
 # /boot/firmware/cmdline.txt に splash があれば除去
 sed -i 's/ splash//' "$BOOT_CMD"
+# コンソールのカーソルを消す。LCD がコンソールも兼ねるので、消さないと画面の上で点滅し続ける
+# （2026-11-25 実機で確認。リストの 1 曲目の中ほど・レコードの上端に出ていた）
+if ! grep -q 'vt.global_cursor_default=0' "$BOOT_CMD"; then
+  sed -i 's/$/ vt.global_cursor_default=0/' "$BOOT_CMD"
+  touch /run/soikaxa-reboot-required  # deploy.sh --update はこれを見て再起動する
+  echo "  起動オプションを変更しました（再起動で反映）"
+fi
 
 echo "== [6/6] Wi-Fi: 国コード・省電力OFF =="
 raspi-config nonint do_wifi_country JP || true

@@ -17,8 +17,9 @@ uv run python scripts/check_deps.py                      # 依存方向・命名
 # PIN 初回登録に要る設定コードは、フェイク起動時だけログに出る（実機は LCD のみ）
 SOIKAXA_DATA_DIR=$PWD/.data SOIKAXA_MUSIC_DIR=$PWD/.data/music SOIKAXA_FAKE=1 \
   SOIKAXA_HTTP_PORT=8080 SOIKAXA_HTTP_HOST=127.0.0.1 uv run python -m soikaxa.daemon
-# 実機へ送ってインストール（Mac から。Pi 側は scripts/install.sh）。2 回目以降は --code-only
-scripts/deploy.sh <user>@soikaxa.local [--music <MP3フォルダ>] [--code-only]
+# 実機へ送ってインストール（Mac から。Pi 側は scripts/install.sh）。2 回目以降はコードだけなら --code-only、
+# scripts/・systemd/・依存を変えたら --update（OS 更新なし。起動オプションを変えたときだけ再起動）
+scripts/deploy.sh <user>@soikaxa.local [--music <MP3フォルダ>] [--update | --code-only]
 # 実機の手順は docs/setup-raspberry-pi.md、使い方は docs/guide.html。状態の採取は scripts/04_report.sh
 ```
 

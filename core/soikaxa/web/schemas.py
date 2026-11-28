@@ -26,6 +26,12 @@ class EnqueueIn(BaseModel):
 
 class PlayIn(BaseModel):
     playlist_id: str = Field(min_length=1, max_length=512)
+    adapter: str | None = Field(default=None, pattern=r"^[a-z0-9_-]{1,32}$")  # 省略時は今の音源
+
+
+class SavedPlaylistIn(BaseModel):
+    playlist_id: str = Field(min_length=1, max_length=512)
+    adapter: str | None = Field(default=None, pattern=r"^[a-z0-9_-]{1,32}$")  # 削除で使う（音源と ID の組）
 
 
 class ControlIn(BaseModel):
